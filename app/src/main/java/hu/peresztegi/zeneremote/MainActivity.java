@@ -14,6 +14,8 @@ import android.text.TextUtils;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.EditText;
+import android.widget.Toast;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -22,6 +24,7 @@ import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.util.Collections;
+import java.util.Locale;
 
 /** Egyszerű kezelőfelület: jogosultságok, szerver indítás/leállítás, elérési címek. */
 public class MainActivity extends Activity {
@@ -63,6 +66,42 @@ public class MainActivity extends Activity {
         addrView.setTextIsSelectable(true);
         addrView.setPadding(0, 0, 0, dp(16));
         root.addView(addrView);
+
+        TextView nameLabel = new TextView(this);
+        nameLabel.setText("Helyi név (Wi-Fi / hotspot):  <név>.local");
+        root.addView(nameLabel);
+
+        LinearLayout nameRow = new LinearLayout(this);
+        nameRow.setOrientation(LinearLayout.HORIZONTAL);
+        EditText nameInput = new EditText(this);
+        nameInput.setSingleLine(true);
+        nameInput.setText(getSharedPreferences(RemoteService.PREFS, MODE_PRIVATE)
+                .getString(RemoteService.PREF_HOSTNAME, RemoteService.DEFAULT_HOSTNAME));
+        nameRow.addView(nameInput, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        Button saveName = new Button(this);
+        saveName.setText("Mentés");
+        saveName.setAllCaps(false);
+        saveName.setOnClickListener(v -> {
+            String n = nameInput.getText().toString().trim().toLowerCase(Locale.ROOT);
+            if (n.endsWith(".local")) n = n.substring(0, n.length() - ".local".length());
+            if (!n.matches("[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")) {
+                Toast.makeText(this, "Csak kisbetű, szám és kötőjel (ékezet nélkül)", Toast.LENGTH_LONG).show();
+                return;
+            }
+            nameInput.setText(n);
+            getSharedPreferences(RemoteService.PREFS, MODE_PRIVATE).edit()
+                    .putString(RemoteService.PREF_HOSTNAME, n).apply();
+            if (RemoteService.running) { // új név -> szerver újraindítása
+                Intent svc = new Intent(this, RemoteService.class);
+                stopService(svc);
+                handler.postDelayed(() -> startForegroundService(svc), 800);
+                handler.postDelayed(this::refresh, 1600);
+            }
+            Toast.makeText(this, "Mentve: " + n + ".local", Toast.LENGTH_SHORT).show();
+        });
+        nameRow.addView(saveName);
+        root.addView(nameRow);
 
         toggleBtn = addButton(root, "", v -> {
             Intent svc = new Intent(this, RemoteService.class);
@@ -147,6 +186,10 @@ public class MainActivity extends Activity {
     /** IPv4 címek interfészenként: wlan0 = otthoni Wi-Fi, tun0 = Tailscale (100.x). */
     private String addresses() {
         StringBuilder b = new StringBuilder("Linda ezt nyissa meg:\n");
+        if (RemoteService.hostName != null) {
+            b.append("http://").append(RemoteService.hostName).append(':')
+                    .append(RemoteService.PORT).append("   (Wi-Fi / hotspot)\n\nVagy IP-vel:\n");
+        }
         try {
             for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
                 if (!ni.isUp() || ni.isLoopback()) continue;

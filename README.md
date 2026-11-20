@@ -38,6 +38,8 @@ Nincs külső függősége, csak az Android SDK. Android 8.0+ (minSdk 26).
 4. **Szerver indítása**. Az app kiírja a címeket:
    - `wlan0` → otthoni Wi-Fi cím (pl. `http://192.168.1.23:1821`)
    - `tun0` → Tailscale cím (`http://100.x.y.z:1821`), ha fut a Tailscale
+   - Helyi név: `http://zene.local:1821` – otthoni Wi-Fi-n és a saját hotspotodon
+     is működik, IP nélkül. A nevet az appban át lehet írni.
 
 ## Linda iPhone-ján
 

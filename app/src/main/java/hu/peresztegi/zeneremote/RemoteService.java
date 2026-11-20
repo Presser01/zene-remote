@@ -70,6 +70,10 @@ public class RemoteService extends Service {
     private static final String WAZE = "com.waze";
     static final String PREFS = "settings";
     static final String PREF_BACK_TO_WAZE = "backToWaze";
+    static final String PREF_HOSTNAME = "hostname";
+    static final String DEFAULT_HOSTNAME = "zene";
+    /** Az aktuális helyi név, pl. "zene.local" (a MainActivity mutatja). */
+    public static volatile String hostName = null;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -77,6 +81,8 @@ public class RemoteService extends Service {
     private ExecutorService pool;
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
+    private WifiManager.MulticastLock multicastLock;
+    private MdnsResponder mdns;
     private byte[] indexHtml;
 
     @Override
@@ -86,6 +92,12 @@ public class RemoteService extends Service {
         acquireLocks();
         indexHtml = loadAsset("index.html");
         startServer();
+
+        String name = getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getString(PREF_HOSTNAME, DEFAULT_HOSTNAME);
+        mdns = new MdnsResponder(name);
+        mdns.start();
+        hostName = mdns.hostName();
     }
 
     @Override
@@ -103,6 +115,9 @@ public class RemoteService extends Service {
         if (pool != null) pool.shutdownNow();
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
+        if (mdns != null) mdns.stop();
+        hostName = null;
+        if (multicastLock != null && multicastLock.isHeld()) multicastLock.release();
         super.onDestroy();
     }
 
@@ -148,6 +163,10 @@ public class RemoteService extends Service {
             wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "ZeneRemote:wifi");
             wifiLock.setReferenceCounted(false);
             wifiLock.acquire();
+            // Wi-Fi-n enélkül a telefon eldobja a multicast (mDNS) csomagokat
+            multicastLock = wm.createMulticastLock("ZeneRemote:mdns");
+            multicastLock.setReferenceCounted(false);
+            multicastLock.acquire();
         }
     }
 
