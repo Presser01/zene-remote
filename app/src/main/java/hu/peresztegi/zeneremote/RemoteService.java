@@ -22,6 +22,9 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import android.util.Log;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -31,6 +34,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -48,6 +52,7 @@ import java.util.concurrent.Executors;
  *   GET /voldown     -> halkabb
  *   GET /play/{id}   -> adott YouTube (Music) videó ID indítása
  *   GET /status      -> mi szól most (JSON)
+ *   GET /search?q=   -> YouTube Music keresés, dalok (JSON)
  */
 public class RemoteService extends Service {
 
@@ -221,9 +226,13 @@ public class RemoteService extends Service {
                 resp = Resp.err(400, "Hibás kérés");
             } else {
                 String path = parts[1];
+                String query = "";
                 int q = path.indexOf('?');
-                if (q >= 0) path = path.substring(0, q);
-                resp = route(path);
+                if (q >= 0) {
+                    query = path.substring(q + 1);
+                    path = path.substring(0, q);
+                }
+                resp = route(path, query);
             }
             write(s.getOutputStream(), resp);
         } catch (Exception e) {
@@ -242,8 +251,10 @@ public class RemoteService extends Service {
         out.flush();
     }
 
-    private Resp route(String path) {
+    private Resp route(String path, String query) {
         switch (path) {
+            case "/search":
+                return search(param(query, "q"));
             case "/":
             case "/index.html":
                 return new Resp(200, "text/html; charset=utf-8", indexHtml);
@@ -271,6 +282,37 @@ public class RemoteService extends Service {
                     return openSong(id);
                 }
                 return Resp.err(404, "Nincs ilyen");
+        }
+    }
+
+    private static String param(String query, String name) {
+        for (String kv : query.split("&")) {
+            int eq = kv.indexOf('=');
+            String k = eq >= 0 ? kv.substring(0, eq) : kv;
+            if (k.equals(name)) {
+                try {
+                    return URLDecoder.decode(eq >= 0 ? kv.substring(eq + 1) : "", "UTF-8");
+                } catch (Exception e) {
+                    return "";
+                }
+            }
+        }
+        return "";
+    }
+
+    private Resp search(String q) {
+        q = q.trim();
+        if (q.isEmpty()) return Resp.err(400, "Üres keresés");
+        if (q.length() > 200) q = q.substring(0, 200);
+        try {
+            JSONArray results = YtmSearch.search(q);
+            return Resp.json(200, new JSONObject()
+                    .put("ok", true)
+                    .put("results", results)
+                    .toString());
+        } catch (Exception e) {
+            Log.w(TAG, "Keresés hiba", e);
+            return Resp.err(502, "Keresés sikertelen: " + e.getMessage());
         }
     }
 

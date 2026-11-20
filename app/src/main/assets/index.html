@@ -2,7 +2,7 @@
 <html lang="hu">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -10,123 +10,192 @@
 <meta name="theme-color" content="#0f0f0f">
 <title>Zene távirányító</title>
 <style>
-  :root { --bg:#0f0f0f; --card:#1e1e1e; --txt:#f1f1f1; --dim:#9a9a9a; --acc:#ff0033; }
+  :root { --bg:#0f0f0f; --card:#1e1e1e; --line:#2a2a2a; --txt:#f1f1f1; --dim:#9a9a9a; --acc:#ff0033; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  body {
-    margin:0; min-height:100vh; background:var(--bg); color:var(--txt);
-    font-family:-apple-system, system-ui, sans-serif;
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    padding:24px 20px calc(24px + env(safe-area-inset-bottom));
-    gap:26px; user-select:none; -webkit-user-select:none;
-  }
-  .now { text-align:center; max-width:380px; min-height:58px; }
-  .now .title { font-size:20px; font-weight:600; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-  .now .artist { font-size:15px; color:var(--dim); margin-top:4px; }
-  .row { display:flex; gap:16px; align-items:center; justify-content:center; }
-  button {
-    border:0; background:var(--card); color:var(--txt); border-radius:50%;
-    width:84px; height:84px; font-size:30px; cursor:pointer;
-    transition:transform .08s, background .15s;
-  }
-  button:active { transform:scale(.92); background:#333; }
-  button.main { width:110px; height:110px; font-size:42px; background:var(--acc); }
-  button.main:active { background:#c4002a; }
-  button.small { width:64px; height:64px; font-size:22px; }
-  .vol { font-size:14px; color:var(--dim); min-width:52px; text-align:center; }
-  .link { width:100%; max-width:380px; display:flex; flex-direction:column; gap:10px; }
-  input {
-    width:100%; padding:14px 16px; border-radius:14px; border:1px solid #333;
-    background:var(--card); color:var(--txt); font-size:16px; outline:none;
-    -webkit-user-select:text; user-select:text;
-  }
-  input:focus { border-color:var(--acc); }
-  .link button { width:100%; height:52px; border-radius:14px; font-size:17px; font-weight:600; }
-  #status { height:20px; font-size:14px; color:var(--dim); transition:opacity .3s; }
-  .hint { font-size:13px; color:var(--dim); text-align:center; margin:0; }
+  html, body { margin:0; background:var(--bg); color:var(--txt);
+    font-family:-apple-system, system-ui, sans-serif; }
+  body { padding-bottom:calc(150px + env(safe-area-inset-bottom)); }
+
+  /* --- kereső --- */
+  header { position:sticky; top:0; z-index:2; background:var(--bg);
+    padding:calc(12px + env(safe-area-inset-top)) 14px 10px; }
+  form { margin:0; display:flex; gap:8px; }
+  input { flex:1; min-width:0; padding:12px 14px; border-radius:22px; border:1px solid #333;
+    background:var(--card); color:var(--txt); font-size:16px; outline:none; -webkit-appearance:none; }
+  input:focus { border-color:#555; }
+  input::-webkit-search-cancel-button { filter:invert(1); }
+
+  /* --- találatok --- */
+  #results { list-style:none; margin:0; padding:0 6px; }
+  #results li { display:flex; align-items:center; gap:12px; padding:8px; border-radius:10px; cursor:pointer; }
+  #results li:active, #results li.sel { background:var(--card); }
+  #results img { width:52px; height:52px; border-radius:6px; object-fit:cover; background:#222; flex:none; }
+  .meta { flex:1; min-width:0; }
+  .t { font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .s { font-size:13px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+  .d { font-size:13px; color:var(--dim); flex:none; }
+  .msg { text-align:center; color:var(--dim); padding:40px 20px; font-size:15px; }
+
+  /* --- lejátszó sáv --- */
+  .bar { position:fixed; left:0; right:0; bottom:0; z-index:3; background:#181818; border-top:1px solid var(--line);
+    padding:10px 14px calc(12px + env(safe-area-inset-bottom)); }
+  .now { text-align:center; min-height:38px; }
+  .now .t { font-weight:600; font-size:15px; }
+  .ctrls { display:flex; align-items:center; justify-content:center; gap:14px; margin-top:6px; }
+  .ctrls button { border:0; background:transparent; color:var(--txt); font-size:26px;
+    width:52px; height:52px; border-radius:50%; cursor:pointer; }
+  .ctrls button:active { background:#333; }
+  .ctrls button.main { background:var(--txt); color:#000; width:58px; height:58px; font-size:26px; }
+  .ctrls button.small { font-size:20px; width:44px; height:44px; color:var(--dim); }
+  #toast { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(160px + env(safe-area-inset-bottom));
+    background:#333; color:#fff; padding:8px 14px; border-radius:16px; font-size:14px;
+    opacity:0; transition:opacity .25s; pointer-events:none; z-index:4; max-width:90%; text-align:center; }
 </style>
 </head>
 <body>
-  <div class="now">
-    <div class="title" id="title">🎵</div>
-    <div class="artist" id="artist"></div>
+  <header>
+    <form id="f" action="javascript:void(0)">
+      <input id="q" type="search" enterkeyhint="search" autocomplete="off"
+             placeholder="Keresés a YouTube Musicban…">
+    </form>
+  </header>
+
+  <ul id="results"></ul>
+  <div class="msg" id="msg">Keress rá egy dalra vagy előadóra 🎵</div>
+
+  <div class="bar">
+    <div class="now">
+      <div class="t" id="title">–</div>
+      <div class="s" id="artist"></div>
+    </div>
+    <div class="ctrls">
+      <button class="small" onclick="send('voldown')" aria-label="Halkabb">🔉</button>
+      <button onclick="send('prev')" aria-label="Előző">⏮</button>
+      <button class="main" id="pp" onclick="send('toggle')" aria-label="Lejátszás / szünet">⏯</button>
+      <button onclick="send('next')" aria-label="Következő">⏭</button>
+      <button class="small" onclick="send('volup')" aria-label="Hangosabb">🔊</button>
+    </div>
   </div>
 
-  <div class="row">
-    <button onclick="send('prev')" aria-label="Előző">⏮</button>
-    <button class="main" id="pp" onclick="send('toggle')" aria-label="Lejátszás / szünet">⏯</button>
-    <button onclick="send('next')" aria-label="Következő">⏭</button>
-  </div>
-
-  <div class="row">
-    <button class="small" onclick="send('voldown')" aria-label="Halkabb">🔉</button>
-    <span class="vol" id="vol"></span>
-    <button class="small" onclick="send('volup')" aria-label="Hangosabb">🔊</button>
-  </div>
-
-  <div class="link">
-    <input id="url" type="url" placeholder="YouTube Music link beillesztése" autocomplete="off">
-    <button onclick="playLink()">▶ Ezt játszd</button>
-    <p class="hint">YouTube Musicban: Megosztás → Link másolása, aztán ide.</p>
-  </div>
-
-  <div id="status"></div>
+  <div id="toast"></div>
 
 <script>
   const $ = id => document.getElementById(id);
-  let t;
-  function show(msg) {
-    $('status').textContent = msg;
-    $('status').style.opacity = 1;
-    clearTimeout(t);
-    t = setTimeout(() => $('status').style.opacity = 0, 2200);
+
+  let toastT;
+  function toast(msg) {
+    $('toast').textContent = msg;
+    $('toast').style.opacity = 1;
+    clearTimeout(toastT);
+    toastT = setTimeout(() => $('toast').style.opacity = 0, 2200);
   }
 
   async function send(cmd) {
     try {
       const r = await fetch('/' + cmd, { cache: 'no-store' });
       const j = await r.json().catch(() => ({}));
-      show(j.ok ? '✓' : (j.error || 'Hiba: ' + r.status));
+      if (!j.ok) toast(j.error || 'Hiba: ' + r.status);
       setTimeout(refresh, 400);
       setTimeout(refresh, 1500);
+      return !!j.ok;
     } catch (e) {
-      show('Nem érem el a telefont 😕');
+      toast('Nem érem el a telefont 😕');
+      return false;
     }
   }
 
+  // ---------- most szól ----------
   async function refresh() {
     if (document.hidden) return;
     try {
       const j = await (await fetch('/status', { cache: 'no-store' })).json();
       if (!j.ok) { $('title').textContent = '⚠️'; $('artist').textContent = j.error || ''; return; }
-      if (!j.active) { $('title').textContent = 'Nem szól semmi'; $('artist').textContent = ''; $('vol').textContent = ''; return; }
+      if (!j.active) { $('title').textContent = 'Nem szól semmi'; $('artist').textContent = ''; return; }
       $('title').textContent = j.title || 'Ismeretlen szám';
-      $('artist').textContent = j.artist || '';
+      $('artist').textContent = (j.artist || '') + (j.maxVolume ? '  ·  🔈 ' + Math.round(100 * j.volume / j.maxVolume) + '%' : '');
       $('pp').textContent = j.playing ? '⏸' : '▶';
-      $('vol').textContent = Math.round(100 * j.volume / j.maxVolume) + '%';
     } catch (e) {
-      $('title').textContent = '📵';
-      $('artist').textContent = 'Nincs kapcsolat';
+      $('title').textContent = '📵 Nincs kapcsolat';
+      $('artist').textContent = '';
     }
   }
 
-  function extractId(s) {
-    s = s.trim();
-    const m = s.match(/[?&]v=([A-Za-z0-9_-]{11})/) ||
-              s.match(/youtu\.be\/([A-Za-z0-9_-]{11})/) ||
-              s.match(/^([A-Za-z0-9_-]{11})$/);
+  // ---------- keresés ----------
+  function linkId(s) {
+    if (!/youtu/.test(s)) return null;
+    const m = s.match(/[?&]v=([A-Za-z0-9_-]{11})/) || s.match(/youtu\.be\/([A-Za-z0-9_-]{11})/);
     return m ? m[1] : null;
   }
 
-  function playLink() {
-    const input = $('url');
-    const id = extractId(input.value);
-    if (!id) { show('Ez nem tűnik YouTube linknek'); return; }
-    send('play/' + id);
-    input.value = '';
-    input.blur();
+  let searchSeq = 0;
+  async function search(q) {
+    q = q.trim();
+    if (!q) return;
+
+    const id = linkId(q);           // beillesztett link -> egyből indítjuk
+    if (id) { play(id, 'Link'); $('q').value = ''; return; }
+
+    const seq = ++searchSeq;
+    $('msg').textContent = 'Keresés…';
+    $('msg').style.display = 'block';
+    try {
+      const r = await fetch('/search?q=' + encodeURIComponent(q), { cache: 'no-store' });
+      const j = await r.json();
+      if (seq !== searchSeq) return; // közben új keresés indult
+      if (!j.ok) { render([]); $('msg').textContent = j.error || 'Hiba a keresésnél'; return; }
+      render(j.results);
+      if (!j.results.length) $('msg').textContent = 'Nincs találat';
+    } catch (e) {
+      if (seq !== searchSeq) return;
+      render([]);
+      $('msg').textContent = 'Nem érem el a telefont 😕';
+    }
   }
 
-  $('url').addEventListener('keydown', e => { if (e.key === 'Enter') playLink(); });
+  function render(list) {
+    const ul = $('results');
+    ul.innerHTML = '';
+    $('msg').style.display = list.length ? 'none' : 'block';
+    for (const s of list) {
+      const li = document.createElement('li');
+      const img = document.createElement('img');
+      img.src = s.thumb || '';
+      img.loading = 'lazy';
+      img.alt = '';
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      const t = document.createElement('div'); t.className = 't'; t.textContent = s.title;
+      const sub = document.createElement('div'); sub.className = 's'; sub.textContent = s.subtitle;
+      meta.append(t, sub);
+      const d = document.createElement('div'); d.className = 'd'; d.textContent = s.duration || '';
+      li.append(img, meta, d);
+      li.onclick = () => {
+        document.querySelectorAll('#results li.sel').forEach(x => x.classList.remove('sel'));
+        li.classList.add('sel');
+        play(s.id, s.title);
+      };
+      ul.appendChild(li);
+    }
+  }
+
+  async function play(id, label) {
+    if (await send('play/' + id)) toast('▶ ' + label);
+  }
+
+  // gépelés közben is keres (kis késleltetéssel), Enterre azonnal
+  let debounceT;
+  $('q').addEventListener('input', e => {
+    clearTimeout(debounceT);
+    const v = e.target.value;
+    if (v.trim().length >= 3 && !linkId(v)) debounceT = setTimeout(() => search(v), 500);
+  });
+  $('f').addEventListener('submit', e => {
+    e.preventDefault();
+    clearTimeout(debounceT);
+    search($('q').value);
+    $('q').blur();
+  });
+
   document.addEventListener('visibilitychange', refresh);
   setInterval(refresh, 3000);
   refresh();

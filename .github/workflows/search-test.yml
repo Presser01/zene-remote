@@ -1,0 +1,15 @@
+name: Search smoke test
+on:
+  push:
+    branches: [search-test]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - run: |
+          curl -sSLo json.jar https://repo1.maven.org/maven2/org/json/json/20240303/json-20240303.jar
+          javac -cp json.jar -d out app/src/main/java/hu/peresztegi/zeneremote/YtmSearch.java tools/SearchSmokeTest.java
+          java -cp json.jar:out hu.peresztegi.zeneremote.SearchSmokeTest
