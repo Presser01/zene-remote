@@ -3,8 +3,9 @@
 Kis Android app: a telefonon egy webszervert futtat (port **1821**), amin keresztül
 más eszközről (pl. iPhone Safari) vezérelhető a YouTube Music.
 
-Tud: előző / lejátszás-szünet / következő, hangerő, "most szól" kijelzés,
-és YouTube Music link beillesztésével konkrét szám indítása.
+Tud: keresés a YouTube Musicban (dalok, borítóval), koppintásra lejátszás,
+előző / lejátszás-szünet / következő, hangerő, "most szól" kijelzés.
+A keresőbe YouTube Music linket is be lehet illeszteni.
 
 Nincs külső függősége, csak az Android SDK. Android 8.0+ (minSdk 26).
 
