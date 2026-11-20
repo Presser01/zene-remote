@@ -97,10 +97,10 @@
       if (!j.ok) toast(j.error || 'Hiba: ' + r.status);
       setTimeout(refresh, 400);
       setTimeout(refresh, 1500);
-      return !!j.ok;
+      return j;
     } catch (e) {
       toast('Nem érem el a telefont 😕');
-      return false;
+      return {};
     }
   }
 
@@ -133,7 +133,7 @@
     if (!q) return;
 
     const id = linkId(q);           // beillesztett link -> egyből indítjuk
-    if (id) { play(id, 'Link'); $('q').value = ''; return; }
+    if (id) { play(id, 'Link', ''); $('q').value = ''; return; }
 
     const seq = ++searchSeq;
     $('msg').textContent = 'Keresés…';
@@ -172,14 +172,16 @@
       li.onclick = () => {
         document.querySelectorAll('#results li.sel').forEach(x => x.classList.remove('sel'));
         li.classList.add('sel');
-        play(s.id, s.title);
+        play(s.id, s.title, (s.subtitle || '').split(' \u2022 ')[0]);
       };
       ul.appendChild(li);
     }
   }
 
-  async function play(id, label) {
-    if (await send('play/' + id)) toast('▶ ' + label);
+  async function play(id, title, artist) {
+    const qs = '?t=' + encodeURIComponent(title === 'Link' ? '' : title) + '&a=' + encodeURIComponent(artist);
+    const j = await send('play/' + id + qs);
+    if (j.ok) toast('▶ ' + title + (j.mode === 'background' ? '' : '  (megnyitva)'));
   }
 
   // gépelés közben is keres (kis késleltetéssel), Enterre azonnal

@@ -18,8 +18,12 @@ import android.media.session.PlaybackState;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.PowerManager;
+import android.provider.MediaStore;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -63,6 +67,11 @@ public class RemoteService extends Service {
     private static final String TAG = "ZeneRemote";
     private static final String CHANNEL_ID = "remote";
     private static final String YTM = "com.google.android.apps.youtube.music";
+    private static final String WAZE = "com.waze";
+    static final String PREFS = "settings";
+    static final String PREF_BACK_TO_WAZE = "backToWaze";
+
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private volatile ServerSocket server;
     private ExecutorService pool;
@@ -279,7 +288,7 @@ public class RemoteService extends Service {
                 if (path.startsWith("/play/")) {
                     String id = path.substring("/play/".length());
                     if (!id.matches("[A-Za-z0-9_-]{11}")) return Resp.err(400, "Hibás videó ID");
-                    return openSong(id);
+                    return openSong(id, param(query, "t"), param(query, "a"));
                 }
                 return Resp.err(404, "Nincs ilyen");
         }
@@ -356,9 +365,37 @@ public class RemoteService extends Service {
         am.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0);
     }
 
-    private Resp openSong(String id) {
-        Intent i = new Intent(Intent.ACTION_VIEW,
-                Uri.parse("https://music.youtube.com/watch?v=" + id));
+    /**
+     * Dal indítása. Először a háttérben próbálja (a YouTube Music lejátszási munkamenetén
+     * keresztül, mint az Android Auto / Asszisztens), és csak ha az nem megy, nyitja meg
+     * linkként. Linknél opcionálisan visszavált a Waze-re.
+     */
+    private Resp openSong(String id, String title, String artist) {
+        Uri uri = Uri.parse("https://music.youtube.com/watch?v=" + id);
+
+        MediaController c = null;
+        try {
+            c = findController();
+        } catch (SecurityException ignored) {
+        }
+        if (c != null && YTM.equals(c.getPackageName())) {
+            PlaybackState st = c.getPlaybackState();
+            long actions = st != null ? st.getActions() : 0;
+            if ((actions & PlaybackState.ACTION_PLAY_FROM_URI) != 0) {
+                c.getTransportControls().playFromUri(uri, null);
+                return Resp.json(200, "{\"ok\":true,\"mode\":\"background\"}");
+            }
+            if (!title.isEmpty() && (actions & PlaybackState.ACTION_PLAY_FROM_SEARCH) != 0) {
+                Bundle extras = new Bundle();
+                extras.putString(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Media.ENTRY_CONTENT_TYPE);
+                extras.putString(MediaStore.EXTRA_MEDIA_TITLE, title);
+                if (!artist.isEmpty()) extras.putString(MediaStore.EXTRA_MEDIA_ARTIST, artist);
+                c.getTransportControls().playFromSearch((title + " " + artist).trim(), extras);
+                return Resp.json(200, "{\"ok\":true,\"mode\":\"background\"}");
+            }
+        }
+
+        Intent i = new Intent(Intent.ACTION_VIEW, uri);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         i.setPackage(YTM);
         try {
@@ -371,7 +408,21 @@ public class RemoteService extends Service {
                 return Resp.err(500, "Nincs app, ami megnyitná a linket");
             }
         }
-        return Resp.ok();
+        if (getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_BACK_TO_WAZE, false)) {
+            mainHandler.postDelayed(this::bringWazeBack, 2500);
+        }
+        return Resp.json(200, "{\"ok\":true,\"mode\":\"foreground\"}");
+    }
+
+    private void bringWazeBack() {
+        Intent w = getPackageManager().getLaunchIntentForPackage(WAZE);
+        if (w == null) return;
+        w.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        try {
+            startActivity(w);
+        } catch (Exception e) {
+            Log.w(TAG, "Waze visszahozása nem sikerült", e);
+        }
     }
 
     private Resp status() {
@@ -400,7 +451,10 @@ public class RemoteService extends Service {
                 + ",\"playing\":" + isPlaying(c)
                 + ",\"title\":\"" + esc(title) + "\""
                 + ",\"artist\":\"" + esc(artist) + "\""
-                + ",\"volume\":" + vol + ",\"maxVolume\":" + max + "}");
+                + ",\"volume\":" + vol + ",\"maxVolume\":" + max
+                + ",\"app\":\"" + esc(c.getPackageName()) + "\""
+                + ",\"actions\":" + (c.getPlaybackState() != null ? c.getPlaybackState().getActions() : 0)
+                + "}");
     }
 
     private static String esc(String s) {

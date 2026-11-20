@@ -13,6 +13,7 @@ import android.provider.Settings;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -83,6 +84,16 @@ public class MainActivity extends Activity {
         batteryBtn = addButton(root, "", v ->
                 startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                         Uri.parse("package:" + getPackageName()))));
+
+        CheckBox waze = new CheckBox(this);
+        waze.setText("Ha egy dal mégis előhozná a YouTube Musicot, utána váltson vissza a Waze-re");
+        waze.setPadding(0, dp(12), 0, 0);
+        waze.setChecked(getSharedPreferences(RemoteService.PREFS, MODE_PRIVATE)
+                .getBoolean(RemoteService.PREF_BACK_TO_WAZE, false));
+        waze.setOnCheckedChangeListener((b, checked) ->
+                getSharedPreferences(RemoteService.PREFS, MODE_PRIVATE).edit()
+                        .putBoolean(RemoteService.PREF_BACK_TO_WAZE, checked).apply());
+        root.addView(waze);
 
         TextView hint = new TextView(this);
         hint.setText("\nHonor/MagicOS: Beállítások → Akkumulátor → Alkalmazásindítás → "
