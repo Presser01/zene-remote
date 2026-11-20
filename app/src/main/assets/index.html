@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Zene">
+<meta name="theme-color" content="#0f0f0f">
+<title>Zene távirányító</title>
+<style>
+  :root { --bg:#0f0f0f; --card:#1e1e1e; --txt:#f1f1f1; --dim:#9a9a9a; --acc:#ff0033; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body {
+    margin:0; min-height:100vh; background:var(--bg); color:var(--txt);
+    font-family:-apple-system, system-ui, sans-serif;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:24px 20px calc(24px + env(safe-area-inset-bottom));
+    gap:26px; user-select:none; -webkit-user-select:none;
+  }
+  .now { text-align:center; max-width:380px; min-height:58px; }
+  .now .title { font-size:20px; font-weight:600; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .now .artist { font-size:15px; color:var(--dim); margin-top:4px; }
+  .row { display:flex; gap:16px; align-items:center; justify-content:center; }
+  button {
+    border:0; background:var(--card); color:var(--txt); border-radius:50%;
+    width:84px; height:84px; font-size:30px; cursor:pointer;
+    transition:transform .08s, background .15s;
+  }
+  button:active { transform:scale(.92); background:#333; }
+  button.main { width:110px; height:110px; font-size:42px; background:var(--acc); }
+  button.main:active { background:#c4002a; }
+  button.small { width:64px; height:64px; font-size:22px; }
+  .vol { font-size:14px; color:var(--dim); min-width:52px; text-align:center; }
+  .link { width:100%; max-width:380px; display:flex; flex-direction:column; gap:10px; }
+  input {
+    width:100%; padding:14px 16px; border-radius:14px; border:1px solid #333;
+    background:var(--card); color:var(--txt); font-size:16px; outline:none;
+    -webkit-user-select:text; user-select:text;
+  }
+  input:focus { border-color:var(--acc); }
+  .link button { width:100%; height:52px; border-radius:14px; font-size:17px; font-weight:600; }
+  #status { height:20px; font-size:14px; color:var(--dim); transition:opacity .3s; }
+  .hint { font-size:13px; color:var(--dim); text-align:center; margin:0; }
+</style>
+</head>
+<body>
+  <div class="now">
+    <div class="title" id="title">🎵</div>
+    <div class="artist" id="artist"></div>
+  </div>
+
+  <div class="row">
+    <button onclick="send('prev')" aria-label="Előző">⏮</button>
+    <button class="main" id="pp" onclick="send('toggle')" aria-label="Lejátszás / szünet">⏯</button>
+    <button onclick="send('next')" aria-label="Következő">⏭</button>
+  </div>
+
+  <div class="row">
+    <button class="small" onclick="send('voldown')" aria-label="Halkabb">🔉</button>
+    <span class="vol" id="vol"></span>
+    <button class="small" onclick="send('volup')" aria-label="Hangosabb">🔊</button>
+  </div>
+
+  <div class="link">
+    <input id="url" type="url" placeholder="YouTube Music link beillesztése" autocomplete="off">
+    <button onclick="playLink()">▶ Ezt játszd</button>
+    <p class="hint">YouTube Musicban: Megosztás → Link másolása, aztán ide.</p>
+  </div>
+
+  <div id="status"></div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let t;
+  function show(msg) {
+    $('status').textContent = msg;
+    $('status').style.opacity = 1;
+    clearTimeout(t);
+    t = setTimeout(() => $('status').style.opacity = 0, 2200);
+  }
+
+  async function send(cmd) {
+    try {
+      const r = await fetch('/' + cmd, { cache: 'no-store' });
+      const j = await r.json().catch(() => ({}));
+      show(j.ok ? '✓' : (j.error || 'Hiba: ' + r.status));
+      setTimeout(refresh, 400);
+      setTimeout(refresh, 1500);
+    } catch (e) {
+      show('Nem érem el a telefont 😕');
+    }
+  }
+
+  async function refresh() {
+    if (document.hidden) return;
+    try {
+      const j = await (await fetch('/status', { cache: 'no-store' })).json();
+      if (!j.ok) { $('title').textContent = '⚠️'; $('artist').textContent = j.error || ''; return; }
+      if (!j.active) { $('title').textContent = 'Nem szól semmi'; $('artist').textContent = ''; $('vol').textContent = ''; return; }
+      $('title').textContent = j.title || 'Ismeretlen szám';
+      $('artist').textContent = j.artist || '';
+      $('pp').textContent = j.playing ? '⏸' : '▶';
+      $('vol').textContent = Math.round(100 * j.volume / j.maxVolume) + '%';
+    } catch (e) {
+      $('title').textContent = '📵';
+      $('artist').textContent = 'Nincs kapcsolat';
+    }
+  }
+
+  function extractId(s) {
+    s = s.trim();
+    const m = s.match(/[?&]v=([A-Za-z0-9_-]{11})/) ||
+              s.match(/youtu\.be\/([A-Za-z0-9_-]{11})/) ||
+              s.match(/^([A-Za-z0-9_-]{11})$/);
+    return m ? m[1] : null;
+  }
+
+  function playLink() {
+    const input = $('url');
+    const id = extractId(input.value);
+    if (!id) { show('Ez nem tűnik YouTube linknek'); return; }
+    send('play/' + id);
+    input.value = '';
+    input.blur();
+  }
+
+  $('url').addEventListener('keydown', e => { if (e.key === 'Enter') playLink(); });
+  document.addEventListener('visibilitychange', refresh);
+  setInterval(refresh, 3000);
+  refresh();
+</script>
+</body>
+</html>
