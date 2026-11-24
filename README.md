@@ -3,9 +3,26 @@
 Kis Android app: a telefonon egy webszervert futtat (port **1821**), amin keresztül
 más eszközről (pl. iPhone Safari) vezérelhető a YouTube Music.
 
-Tud: keresés a YouTube Musicban (dalok, borítóval), koppintásra lejátszás,
-előző / lejátszás-szünet / következő, hangerő, "most szól" kijelzés.
+Tud: keresés a YouTube Musicban (dalok, borítóval), **közös várólista**, előző /
+lejátszás-szünet / következő, hangerő, "most szól" kijelzés csúszkával.
 A keresőbe YouTube Music linket is be lehet illeszteni.
+
+### Többen egyszerre
+
+- Első megnyitáskor mindenki megadja a nevét (a böngésző megjegyzi).
+- **Bárki** tehet dalt a sorba: koppints a találatra. A dalok sorban jönnek egymás után;
+  ha épp semmi nem szól, az első azonnal indul.
+- **Csak admin** törölhet a sorból, rendezheti, ürítheti, indíthat dalt azonnal,
+  és léptethet (előző / következő). Szünet és hangerő mindenkinek megy.
+- Adminná válás: a **Résztvevők** fülön a PIN beírásával. A PIN a telefon értesítésében
+  és a Zene Remote appban látszik (ott újat is lehet generálni). Egy admin a Résztvevők
+  fülön másokat is adminná tehet, vagy elveheti a jogot.
+
+### Háttérben fut
+
+Elindítás után az appot be lehet zárni, a szerver tovább fut. Telefon-újraindítás után
+magától elindul, ha be volt kapcsolva. Ki/bekapcsolni lehet az értesítés
+**Leállítás** gombjával vagy a gyorsbeállításokba felvehető **Zene Remote** csempével is.
 
 Nincs külső függősége, csak az Android SDK. Android 8.0+ (minSdk 26).
 
@@ -48,7 +65,9 @@ Safari → a fenti cím → Megosztás → **Főképernyőhöz adás**. Ettől k
 ## Megjegyzések
 
 - A routerben adj fix IP-t a telefonnak (DHCP foglalás), hogy a cím ne változzon.
-- Nincs jelszó: aki ugyanazon a Wi-Fi-n van, az tudja léptetni a zenét.
-  Otthon ez rendben van, nyilvános Wi-Fi-n ne futtasd.
+- Nincs jelszó a belépéshez: aki ugyanazon a Wi-Fi-n van, az tud dalt kérni, szüneteltetni
+  és hangerőt állítani. A többi az adminé (PIN). Nyilvános Wi-Fi-n ne futtasd.
+- A sor léptetése: a dal utolsó másodpercében a szerver elindítja a sor következő dalát.
+  Ha a sor üres, a YouTube Music megy tovább a saját ajánlásaival.
 - A "link indítás" megnyitja a YouTube Music appot a telefonodon; hogy rögtön
   el is kezdi-e játszani, az a YouTube Music viselkedésén múlik.

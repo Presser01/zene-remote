@@ -32,6 +32,7 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView statusView;
     private TextView addrView;
+    private TextView pinView;
     private Button toggleBtn;
     private Button notifBtn;
     private Button overlayBtn;
@@ -95,7 +96,7 @@ public class MainActivity extends Activity {
             if (RemoteService.running) { // új név -> szerver újraindítása
                 Intent svc = new Intent(this, RemoteService.class);
                 stopService(svc);
-                handler.postDelayed(() -> startForegroundService(svc), 800);
+                handler.postDelayed(() -> RemoteService.start(this), 800);
                 handler.postDelayed(this::refresh, 1600);
             }
             Toast.makeText(this, "Mentve: " + n + ".local", Toast.LENGTH_SHORT).show();
@@ -104,13 +105,22 @@ public class MainActivity extends Activity {
         root.addView(nameRow);
 
         toggleBtn = addButton(root, "", v -> {
-            Intent svc = new Intent(this, RemoteService.class);
             if (RemoteService.running) {
-                stopService(svc);
+                RemoteService.stop(this);
             } else {
-                startForegroundService(svc);
+                RemoteService.start(this);
             }
             handler.postDelayed(this::refresh, 600);
+        });
+
+        pinView = new TextView(this);
+        pinView.setTextSize(18);
+        pinView.setTextIsSelectable(true);
+        pinView.setPadding(0, dp(16), 0, 0);
+        root.addView(pinView);
+        addButton(root, "Új admin PIN", v -> {
+            RemoteService.newPin(this);
+            refresh();
         });
 
         notifBtn = addButton(root, "", v ->
@@ -135,7 +145,10 @@ public class MainActivity extends Activity {
         root.addView(waze);
 
         TextView hint = new TextView(this);
-        hint.setText("\nHonor/MagicOS: Beállítások → Akkumulátor → Alkalmazásindítás → "
+        hint.setText("\nElindítás után az appot nyugodtan bezárhatod: a szerver a háttérben fut, "
+                + "és a telefon újraindítása után is magától elindul. Ki/bekapcsolni az értesítésből "
+                + "vagy a gyorsbeállítások \"Zene Remote\" csempéjével is lehet.\n\n"
+                + "Honor/MagicOS: Beállítások → Akkumulátor → Alkalmazásindítás → "
                 + "Zene Remote → Kézi kezelés, és mindhárom kapcsoló legyen bekapcsolva. "
                 + "Enélkül a rendszer leállíthatja a szervert.");
         hint.setTextSize(14);
@@ -171,6 +184,8 @@ public class MainActivity extends Activity {
         batteryBtn.setText((battery ? "✅ " : "❗ ") + "Akkumulátor-optimalizálás kikapcsolása");
 
         addrView.setText(running ? addresses() : "");
+        pinView.setText("Admin PIN: " + RemoteService.pin(this)
+                + "\n(aki ezt beírja a weboldalon, admin lesz: törölhet a sorból, léptethet)");
     }
 
     private boolean hasNotificationAccess() {

@@ -2,7 +2,7 @@
 <html lang="hu">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -10,114 +10,458 @@
 <meta name="theme-color" content="#0f0f0f">
 <title>Zene távirányító</title>
 <style>
-  :root { --bg:#0f0f0f; --card:#1e1e1e; --line:#2a2a2a; --txt:#f1f1f1; --dim:#9a9a9a; --acc:#ff0033; }
+  :root { --bg:#0f0f0f; --card:#1c1c1c; --card2:#262626; --line:#2c2c2c; --txt:#f3f3f3; --dim:#9a9a9a;
+    --acc:#ff2d55; --ok:#34c759; --gold:#ffcc00; --barH:178px; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body { margin:0; background:var(--bg); color:var(--txt);
-    font-family:-apple-system, system-ui, sans-serif; }
-  body { padding-bottom:calc(150px + env(safe-area-inset-bottom)); }
+    font-family:-apple-system, system-ui, "Segoe UI", Roboto, sans-serif; -webkit-text-size-adjust:100%; }
+  body { padding-bottom:calc(var(--barH) + env(safe-area-inset-bottom)); }
+  button { font:inherit; color:inherit; }
+  svg { width:1em; height:1em; fill:currentColor; display:block; }
+
+  /* --- fejléc + fülek --- */
+  header { position:sticky; top:0; z-index:5; background:rgba(15,15,15,.94);
+    -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+    padding:calc(10px + env(safe-area-inset-top)) 14px 10px; border-bottom:1px solid var(--line); }
+  .top { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .logo { font-weight:700; font-size:20px; letter-spacing:-.3px; }
+  .logo span { color:var(--acc); }
+  .chip { display:flex; align-items:center; gap:6px; background:var(--card); border:0; border-radius:16px;
+    padding:6px 12px; font-size:14px; max-width:55%; }
+  .chip b { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+  .tabs { display:flex; background:var(--card); border-radius:12px; padding:3px; }
+  .tabs button { flex:1; border:0; background:transparent; padding:9px 4px; border-radius:9px;
+    font-size:14px; font-weight:600; color:var(--dim); }
+  .tabs button.on { background:var(--card2); color:var(--txt); }
+  .badge { display:inline-block; min-width:18px; padding:0 5px; margin-left:4px; border-radius:9px;
+    background:var(--acc); color:#fff; font-size:11px; line-height:18px; }
+  .badge:empty { display:none; }
+
+  section { display:none; padding:12px 10px; }
+  section.on { display:block; }
 
   /* --- kereső --- */
-  header { position:sticky; top:0; z-index:2; background:var(--bg);
-    padding:calc(12px + env(safe-area-inset-top)) 14px 10px; }
-  form { margin:0; display:flex; gap:8px; }
-  input { flex:1; min-width:0; padding:12px 14px; border-radius:22px; border:1px solid #333;
-    background:var(--card); color:var(--txt); font-size:16px; outline:none; -webkit-appearance:none; }
+  form { margin:0 4px 10px; position:relative; }
+  input { width:100%; padding:13px 16px; border-radius:24px; border:1px solid #333; background:var(--card);
+    color:var(--txt); font-size:16px; outline:none; -webkit-appearance:none; }
   input:focus { border-color:#555; }
   input::-webkit-search-cancel-button { filter:invert(1); }
 
-  /* --- találatok --- */
-  #results { list-style:none; margin:0; padding:0 6px; }
-  #results li { display:flex; align-items:center; gap:12px; padding:8px; border-radius:10px; cursor:pointer; }
-  #results li:active, #results li.sel { background:var(--card); }
-  #results img { width:52px; height:52px; border-radius:6px; object-fit:cover; background:#222; flex:none; }
+  /* --- listák --- */
+  ul.list { list-style:none; margin:0; padding:0; }
+  .row { display:flex; align-items:center; gap:12px; padding:8px; border-radius:12px; }
+  .row:active { background:var(--card); }
+  .row img, .ph { width:52px; height:52px; border-radius:8px; object-fit:cover; background:#222; flex:none; }
   .meta { flex:1; min-width:0; }
   .t { font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .s { font-size:13px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
-  .d { font-size:13px; color:var(--dim); flex:none; }
-  .msg { text-align:center; color:var(--dim); padding:40px 20px; font-size:15px; }
+  .s { font-size:13px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px; }
+  .s .by { color:#c9c9c9; }
+  .ib { border:0; background:var(--card); width:40px; height:40px; border-radius:50%; font-size:18px;
+    display:flex; align-items:center; justify-content:center; flex:none; }
+  .ib:active { background:#3a3a3a; }
+  .ib.acc { background:var(--acc); color:#fff; }
+  .ib.sm { width:34px; height:34px; font-size:15px; background:transparent; color:var(--dim); }
+  .ib.sm:disabled { opacity:.25; }
+  .acts { display:flex; gap:2px; flex:none; }
+  .msg { text-align:center; color:var(--dim); padding:36px 20px; font-size:15px; line-height:1.5; }
+  .h { font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:var(--dim); margin:14px 8px 6px; }
+  .h:first-child { margin-top:4px; }
+  .nowcard { background:linear-gradient(135deg,#2a1218,#1c1c1c); border-radius:14px; }
+  .pill { font-size:12px; padding:3px 9px; border-radius:10px; background:var(--card2); color:var(--dim);
+    border:0; flex:none; }
+  .pill.gold { background:rgba(255,204,0,.15); color:var(--gold); }
+  .dot { width:8px; height:8px; border-radius:50%; background:#555; flex:none; }
+  .dot.on { background:var(--ok); }
+  .wide { display:block; width:calc(100% - 8px); margin:14px 4px 0; padding:13px; border-radius:12px; border:0;
+    background:var(--card); font-size:15px; font-weight:600; }
+  .wide.danger { color:var(--acc); }
+  .pinrow { display:flex; gap:8px; margin:6px 4px 0; }
+  .pinrow input { flex:1; text-align:center; letter-spacing:6px; }
+  .pinrow button { border:0; border-radius:24px; padding:0 18px; background:var(--acc); color:#fff; font-weight:600; }
 
   /* --- lejátszó sáv --- */
-  .bar { position:fixed; left:0; right:0; bottom:0; z-index:3; background:#181818; border-top:1px solid var(--line);
-    padding:10px 14px calc(12px + env(safe-area-inset-bottom)); }
-  .now { text-align:center; min-height:38px; }
-  .now .t { font-weight:600; font-size:15px; }
-  .ctrls { display:flex; align-items:center; justify-content:center; gap:14px; margin-top:6px; }
-  .ctrls button { border:0; background:transparent; color:var(--txt); font-size:26px;
-    width:52px; height:52px; border-radius:50%; cursor:pointer; }
+  .bar { position:fixed; left:0; right:0; bottom:0; z-index:6; background:rgba(24,24,24,.97);
+    -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); border-top:1px solid var(--line);
+    padding:10px 16px calc(10px + env(safe-area-inset-bottom)); }
+  .np { display:flex; align-items:center; gap:12px; }
+  .np img, .np .ph { width:48px; height:48px; }
+  .np .t { font-weight:600; font-size:15px; }
+  .prog { height:4px; background:#333; border-radius:2px; margin:10px 0 2px; overflow:hidden; }
+  .prog div { height:100%; width:0; background:var(--txt); border-radius:2px; }
+  .times { display:flex; justify-content:space-between; font-size:11px; color:var(--dim); }
+  .ctrls { display:flex; align-items:center; justify-content:space-between; margin-top:4px; padding:0 4px; }
+  .ctrls button { border:0; background:transparent; width:52px; height:52px; border-radius:50%;
+    font-size:28px; display:flex; align-items:center; justify-content:center; }
   .ctrls button:active { background:#333; }
-  .ctrls button.main { background:var(--txt); color:#000; width:58px; height:58px; font-size:26px; }
-  .ctrls button.small { font-size:20px; width:44px; height:44px; color:var(--dim); }
-  #toast { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(160px + env(safe-area-inset-bottom));
-    background:#333; color:#fff; padding:8px 14px; border-radius:16px; font-size:14px;
-    opacity:0; transition:opacity .25s; pointer-events:none; z-index:4; max-width:90%; text-align:center; }
+  .ctrls button.main { background:var(--txt); color:#000; width:62px; height:62px; font-size:30px; }
+  .ctrls button.vol { font-size:22px; color:var(--dim); width:44px; height:44px; }
+  .ctrls button.hide { visibility:hidden; }
+
+  /* --- belépés --- */
+  #join { position:fixed; inset:0; z-index:20; background:var(--bg); display:none; flex-direction:column;
+    justify-content:center; padding:30px 26px calc(30px + env(safe-area-inset-bottom)); }
+  #join.on { display:flex; }
+  #join h1 { font-size:30px; margin:0 0 6px; }
+  #join p { color:var(--dim); margin:0 0 24px; font-size:15px; line-height:1.5; }
+  #join button { margin-top:12px; padding:14px; border:0; border-radius:24px; background:var(--acc);
+    color:#fff; font-size:16px; font-weight:600; }
+
+  #toast { position:fixed; left:50%; transform:translateX(-50%) translateY(10px);
+    bottom:calc(var(--barH) + 14px + env(safe-area-inset-bottom)); background:#3a3a3a; color:#fff;
+    padding:10px 16px; border-radius:18px; font-size:14px; opacity:0; transition:all .25s;
+    pointer-events:none; z-index:30; max-width:90%; text-align:center; }
+  #toast.on { opacity:1; transform:translateX(-50%) translateY(0); }
 </style>
 </head>
 <body>
-  <header>
-    <form id="f" action="javascript:void(0)">
-      <input id="q" type="search" enterkeyhint="search" autocomplete="off"
-             placeholder="Keresés a YouTube Musicban…">
-    </form>
-  </header>
 
-  <ul id="results"></ul>
-  <div class="msg" id="msg">Keress rá egy dalra vagy előadóra 🎵</div>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M5 6.5v11a1 1 0 0 0 1.53.85L15 13v4.5a1 1 0 0 0 2 0v-11a1 1 0 0 0-2 0V11L6.53 5.65A1 1 0 0 0 5 6.5z"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M19 6.5v11a1 1 0 0 1-1.53.85L9 13v4.5a1 1 0 0 1-2 0v-11a1 1 0 0 1 2 0V11l8.47-5.35A1 1 0 0 1 19 6.5z"/></symbol>
+  <symbol id="i-vdown" viewBox="0 0 24 24"><path d="M4 9h3l5-4v14l-5-4H4zM15 11h6v2h-6z"/></symbol>
+  <symbol id="i-vup" viewBox="0 0 24 24"><path d="M3 9h3l5-4v14l-5-4H3zM17 8h2v3h3v2h-3v3h-2v-3h-3v-2h3z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4z"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 7l6 6-1.4 1.4L12 9.8l-4.6 4.6L6 13z"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 17l-6-6 1.4-1.4 4.6 4.6 4.6-4.6L18 11z"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M9 17.5V6l11-2v11.5a2.5 2.5 0 1 1-2-2.45V7.4l-7 1.27v8.83A2.5 2.5 0 1 1 9 17.5z"/></symbol>
+</svg>
 
-  <div class="bar">
-    <div class="now">
+<div id="join">
+  <h1>🎵 Zene</h1>
+  <p>Add meg a neved, hogy a többiek lássák, ki kérte a számot.</p>
+  <form id="joinf" action="javascript:void(0)">
+    <input id="jname" maxlength="24" autocomplete="nickname" placeholder="Neved" enterkeyhint="go">
+    <button style="width:100%">Belépés</button>
+  </form>
+</div>
+
+<header>
+  <div class="top">
+    <div class="logo">Zene<span>.</span></div>
+    <button class="chip" id="mechip" onclick="tab('people')"><span id="mecrown"></span><b id="mename">–</b></button>
+  </div>
+  <div class="tabs">
+    <button data-tab="search" class="on" onclick="tab('search')">Keresés</button>
+    <button data-tab="queue" onclick="tab('queue')">Sor<span class="badge" id="qbadge"></span></button>
+    <button data-tab="people" onclick="tab('people')">Résztvevők</button>
+  </div>
+</header>
+
+<section id="search" class="on">
+  <form id="f" action="javascript:void(0)">
+    <input id="q" type="search" enterkeyhint="search" autocomplete="off" placeholder="Dal, előadó vagy YouTube link…">
+  </form>
+  <ul class="list" id="results"></ul>
+  <div class="msg" id="smsg">Keress rá egy dalra, és koppints rá:<br>bekerül a sorba 🎶</div>
+</section>
+
+<section id="queue">
+  <div id="qnow"></div>
+  <div class="h" id="qhead">Következik</div>
+  <ul class="list" id="qlist"></ul>
+  <div class="msg" id="qmsg">Üres a sor. Keress egy dalt és add hozzá!</div>
+  <button class="wide danger" id="qclear" style="display:none" onclick="clearQueue()">Sor ürítése</button>
+</section>
+
+<section id="people">
+  <div class="h">Résztvevők</div>
+  <ul class="list" id="ulist"></ul>
+  <div id="claim">
+    <div class="h">Admin vagy?</div>
+    <div class="pinrow">
+      <input id="pin" inputmode="numeric" maxlength="6" placeholder="PIN" autocomplete="off">
+      <button onclick="claim()">OK</button>
+    </div>
+    <div class="msg" style="padding:10px 20px">A PIN a zenét lejátszó telefon értesítésében és a Zene Remote appban látszik.</div>
+  </div>
+  <button class="wide" onclick="rename()">Név módosítása</button>
+</section>
+
+<div class="bar">
+  <div class="np">
+    <div class="ph" id="npph"></div>
+    <img id="npimg" alt="" style="display:none">
+    <div class="meta">
       <div class="t" id="title">–</div>
       <div class="s" id="artist"></div>
     </div>
-    <div class="ctrls">
-      <button class="small" onclick="send('voldown')" aria-label="Halkabb">🔉</button>
-      <button onclick="send('prev')" aria-label="Előző">⏮</button>
-      <button class="main" id="pp" onclick="send('toggle')" aria-label="Lejátszás / szünet">⏯</button>
-      <button onclick="send('next')" aria-label="Következő">⏭</button>
-      <button class="small" onclick="send('volup')" aria-label="Hangosabb">🔊</button>
-    </div>
   </div>
+  <div class="prog"><div id="progv"></div></div>
+  <div class="times"><span id="tpos"></span><span id="tdur"></span></div>
+  <div class="ctrls">
+    <button class="vol" onclick="send('voldown')" aria-label="Halkabb"><svg><use href="#i-vdown"/></svg></button>
+    <button id="bprev" onclick="send('prev')" aria-label="Előző"><svg><use href="#i-prev"/></svg></button>
+    <button class="main" onclick="send('toggle')" aria-label="Lejátszás / szünet"><svg id="ppicon"><use href="#i-play"/></svg></button>
+    <button id="bnext" onclick="send('next')" aria-label="Következő"><svg><use href="#i-next"/></svg></button>
+    <button class="vol" onclick="send('volup')" aria-label="Hangosabb"><svg><use href="#i-vup"/></svg></button>
+  </div>
+</div>
 
-  <div id="toast"></div>
+<div id="toast"></div>
 
 <script>
   const $ = id => document.getElementById(id);
+  let token = localStorage.getItem('zr_token') || '';
+  let S = null;          // utolsó /state válasz
+  let stateAt = 0;       // mikor jött (a csúszka helyi léptetéséhez)
 
+  // ---------- segédek ----------
   let toastT;
   function toast(msg) {
-    $('toast').textContent = msg;
-    $('toast').style.opacity = 1;
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('on');
     clearTimeout(toastT);
-    toastT = setTimeout(() => $('toast').style.opacity = 0, 2200);
+    toastT = setTimeout(() => t.classList.remove('on'), 2300);
+  }
+
+  function icon(name) {
+    const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const u = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    u.setAttribute('href', '#i-' + name);
+    s.appendChild(u);
+    return s;
+  }
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function thumbEl(url) {
+    if (!url) { const d = el('div', 'ph'); return d; }
+    const img = el('img');
+    img.src = url.replace(/=w\d+-h\d+/, '=w120-h120');
+    img.loading = 'lazy';
+    img.alt = '';
+    return img;
+  }
+
+  function iconBtn(name, cls, label, fn) {
+    const b = el('button', 'ib ' + (cls || ''));
+    b.setAttribute('aria-label', label);
+    b.appendChild(icon(name));
+    b.onclick = e => { e.stopPropagation(); fn(); };
+    return b;
+  }
+
+  function fmt(ms) {
+    if (!ms || ms < 0) return '';
+    const s = Math.floor(ms / 1000);
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  async function api(path) {
+    try {
+      const r = await fetch('/' + path, { cache: 'no-store', headers: { 'X-Token': token } });
+      const j = await r.json().catch(() => ({ ok: false, error: 'Hiba: ' + r.status }));
+      if (j.auth) showJoin();
+      return j;
+    } catch (e) {
+      return { ok: false, error: 'Nem érem el a telefont 😕', offline: true };
+    }
   }
 
   async function send(cmd) {
-    try {
-      const r = await fetch('/' + cmd, { cache: 'no-store' });
-      const j = await r.json().catch(() => ({}));
-      if (!j.ok) toast(j.error || 'Hiba: ' + r.status);
-      setTimeout(refresh, 400);
-      setTimeout(refresh, 1500);
-      return j;
-    } catch (e) {
-      toast('Nem érem el a telefont 😕');
-      return {};
+    const j = await api(cmd);
+    if (!j.ok) toast(j.error || 'Hiba');
+    setTimeout(refresh, 400);
+    setTimeout(refresh, 1500);
+    return j;
+  }
+
+  const isAdmin = () => !!(S && S.me && S.me.admin);
+
+  // ---------- belépés ----------
+  function showJoin(prefill) {
+    $('jname').value = prefill || localStorage.getItem('zr_name') || '';
+    $('join').classList.add('on');
+    setTimeout(() => $('jname').focus(), 50);
+  }
+
+  $('joinf').addEventListener('submit', async e => {
+    e.preventDefault();
+    const name = $('jname').value.trim();
+    if (!name) return;
+    const j = await api('join?name=' + encodeURIComponent(name));
+    if (!j.ok) { toast(j.error || 'Nem sikerült'); return; }
+    token = j.token;
+    localStorage.setItem('zr_token', token);
+    localStorage.setItem('zr_name', j.me.name);
+    $('join').classList.remove('on');
+    $('jname').blur();
+    refresh();
+  });
+
+  function rename() { showJoin(S && S.me ? S.me.name : ''); }
+
+  // ---------- fülek ----------
+  function tab(name) {
+    document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === name));
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+    window.scrollTo(0, 0);
+  }
+
+  // ---------- állapot ----------
+  async function refresh() {
+    if (document.hidden || !token) return;
+    const j = await api('state');
+    if (!j.ok) {
+      if (j.offline) { $('title').textContent = '📵 Nincs kapcsolat'; $('artist').textContent = ''; }
+      return;
+    }
+    S = j;
+    stateAt = Date.now();
+    renderMe();
+    renderNow();
+    renderQueue();
+    renderPeople();
+  }
+
+  function renderMe() {
+    $('mename').textContent = S.me.name;
+    $('mecrown').textContent = S.me.admin ? '👑' : '🙂';
+    $('bprev').classList.toggle('hide', !S.me.admin);
+    $('bnext').classList.toggle('hide', !S.me.admin);
+    $('claim').style.display = S.me.admin ? 'none' : '';
+  }
+
+  function renderNow() {
+    const n = S.now || {};
+    const cur = S.current;
+    if (!n.active) {
+      $('title').textContent = n.error ? '⚠️ ' + n.error : 'Nem szól semmi';
+      $('artist').textContent = S.queue.length ? 'Nyomd meg a ▶-t, vagy adj hozzá egy dalt' : '';
+      setArt('');
+    } else {
+      $('title').textContent = n.title || 'Ismeretlen szám';
+      $('artist').textContent = (n.artist || '') + (cur ? '  ·  kérte: ' + cur.by : '');
+      setArt(n.art || (cur && cur.thumb) || '');
+    }
+    $('ppicon').firstChild.setAttribute('href', n.playing ? '#i-pause' : '#i-play');
+    $('qbadge').textContent = S.queue.length || '';
+    tickProgress();
+  }
+
+  function setArt(url) {
+    url = url ? url.replace(/=w\d+-h\d+/, '=w120-h120') : '';
+    const img = $('npimg');
+    if (url) {
+      if (img.getAttribute('src') !== url) img.src = url;
+      img.style.display = ''; $('npph').style.display = 'none';
+    } else {
+      img.style.display = 'none'; $('npph').style.display = '';
     }
   }
 
-  // ---------- most szól ----------
-  async function refresh() {
-    if (document.hidden) return;
-    try {
-      const j = await (await fetch('/status', { cache: 'no-store' })).json();
-      if (!j.ok) { $('title').textContent = '⚠️'; $('artist').textContent = j.error || ''; return; }
-      if (!j.active) { $('title').textContent = 'Nem szól semmi'; $('artist').textContent = ''; return; }
-      $('title').textContent = j.title || 'Ismeretlen szám';
-      $('artist').textContent = (j.artist || '') + (j.maxVolume ? '  ·  🔈 ' + Math.round(100 * j.volume / j.maxVolume) + '%' : '');
-      $('pp').textContent = j.playing ? '⏸' : '▶';
-    } catch (e) {
-      $('title').textContent = '📵 Nincs kapcsolat';
-      $('artist').textContent = '';
+  function tickProgress() {
+    const n = S && S.now;
+    if (!n || !n.active || !n.duration) {
+      $('progv').style.width = '0'; $('tpos').textContent = ''; $('tdur').textContent = ''; return;
     }
+    const pos = Math.min(n.duration, n.position + (n.playing ? Date.now() - stateAt : 0));
+    $('progv').style.width = (100 * pos / n.duration) + '%';
+    $('tpos').textContent = fmt(pos);
+    $('tdur').textContent = fmt(n.duration);
+  }
+
+  function renderQueue() {
+    const admin = isAdmin();
+    const box = $('qnow');
+    box.innerHTML = '';
+    if (S.current) {
+      box.appendChild(el('div', 'h', 'Most szól'));
+      const r = el('div', 'row nowcard');
+      r.append(thumbEl(S.current.thumb), meta(S.current.title, S.current.artist, S.current.by));
+      box.appendChild(r);
+    }
+
+    const ul = $('qlist');
+    ul.innerHTML = '';
+    const q = S.queue;
+    $('qhead').style.display = q.length ? '' : 'none';
+    $('qmsg').style.display = q.length ? 'none' : '';
+    $('qclear').style.display = admin && q.length ? '' : 'none';
+
+    q.forEach((it, i) => {
+      const li = el('li', 'row');
+      li.append(thumbEl(it.thumb), meta((i + 1) + '. ' + it.title, it.artist, it.by));
+      if (admin) {
+        const a = el('div', 'acts');
+        const up = iconBtn('up', 'sm', 'Feljebb', () => send('queue/move?qid=' + it.qid + '&d=-1'));
+        const dn = iconBtn('down', 'sm', 'Lejjebb', () => send('queue/move?qid=' + it.qid + '&d=1'));
+        up.disabled = i === 0;
+        dn.disabled = i === q.length - 1;
+        a.append(up, dn,
+          iconBtn('play', 'sm', 'Lejátszás most', () => send('queue/playnow?qid=' + it.qid)),
+          iconBtn('x', 'sm', 'Törlés', () => send('queue/remove?qid=' + it.qid)));
+        li.appendChild(a);
+      } else if (it.mine) {
+        li.appendChild(el('span', 'pill', 'tiéd'));
+      }
+      ul.appendChild(li);
+    });
+  }
+
+  function meta(title, sub, by) {
+    const m = el('div', 'meta');
+    m.appendChild(el('div', 't', title));
+    const s = el('div', 's');
+    s.textContent = sub || '';
+    if (by) {
+      if (sub) s.appendChild(document.createTextNode('  ·  '));
+      s.appendChild(el('span', 'by', by));
+    }
+    m.appendChild(s);
+    return m;
+  }
+
+  function renderPeople() {
+    const admin = isAdmin();
+    const ul = $('ulist');
+    ul.innerHTML = '';
+    const users = S.users.slice().sort((a, b) => (b.online - a.online) || (b.admin - a.admin)
+      || a.name.localeCompare(b.name, 'hu'));
+    for (const u of users) {
+      const li = el('li', 'row');
+      li.appendChild(el('div', 'dot' + (u.online ? ' on' : '')));
+      const m = el('div', 'meta');
+      m.appendChild(el('div', 't', u.name + (u.me ? ' (te)' : '')));
+      m.appendChild(el('div', 's', u.online ? 'online' : 'nem aktív'));
+      li.appendChild(m);
+      if (admin && !u.me) {
+        const b = el('button', 'pill' + (u.admin ? ' gold' : ''), u.admin ? '👑 Admin' : 'Adminná tesz');
+        b.onclick = () => {
+          if (u.admin && !confirm(u.name + ' ne legyen admin?')) return;
+          send('users/admin?id=' + u.id + '&on=' + (u.admin ? 0 : 1));
+        };
+        li.appendChild(b);
+      } else if (u.admin) {
+        li.appendChild(el('span', 'pill gold', '👑 Admin'));
+      }
+      ul.appendChild(li);
+    }
+  }
+
+  async function clearQueue() {
+    if (!confirm('Biztosan törlöd az egész sort?')) return;
+    send('queue/clear');
+  }
+
+  async function claim() {
+    const pin = $('pin').value.trim();
+    if (!pin) return;
+    const j = await api('admin/claim?pin=' + encodeURIComponent(pin));
+    $('pin').value = '';
+    $('pin').blur();
+    if (j.ok) toast('👑 Mostantól admin vagy');
+    else toast(j.error || 'Nem sikerült');
+    refresh();
   }
 
   // ---------- keresés ----------
@@ -132,56 +476,53 @@
     q = q.trim();
     if (!q) return;
 
-    const id = linkId(q);           // beillesztett link -> egyből indítjuk
-    if (id) { play(id, 'Link', ''); $('q').value = ''; return; }
+    const id = linkId(q);           // beillesztett link -> egyből a sorba
+    if (id) { addToQueue({ id, title: 'Link', subtitle: '' }); $('q').value = ''; return; }
 
     const seq = ++searchSeq;
-    $('msg').textContent = 'Keresés…';
-    $('msg').style.display = 'block';
-    try {
-      const r = await fetch('/search?q=' + encodeURIComponent(q), { cache: 'no-store' });
-      const j = await r.json();
-      if (seq !== searchSeq) return; // közben új keresés indult
-      if (!j.ok) { render([]); $('msg').textContent = j.error || 'Hiba a keresésnél'; return; }
-      render(j.results);
-      if (!j.results.length) $('msg').textContent = 'Nincs találat';
-    } catch (e) {
-      if (seq !== searchSeq) return;
-      render([]);
-      $('msg').textContent = 'Nem érem el a telefont 😕';
-    }
+    $('smsg').textContent = 'Keresés…';
+    $('smsg').style.display = 'block';
+    const j = await api('search?q=' + encodeURIComponent(q));
+    if (seq !== searchSeq) return; // közben új keresés indult
+    if (!j.ok) { renderResults([]); $('smsg').textContent = j.error || 'Hiba a keresésnél'; return; }
+    renderResults(j.results);
+    if (!j.results.length) $('smsg').textContent = 'Nincs találat';
   }
 
-  function render(list) {
+  function artistOf(s) { return (s.subtitle || '').split(' • ')[0]; }
+
+  function renderResults(list) {
     const ul = $('results');
     ul.innerHTML = '';
-    $('msg').style.display = list.length ? 'none' : 'block';
+    $('smsg').style.display = list.length ? 'none' : 'block';
     for (const s of list) {
-      const li = document.createElement('li');
-      const img = document.createElement('img');
-      img.src = (s.thumb || '').replace(/=w\d+-h\d+/, '=w120-h120'); // éles kép retinán is
-      img.loading = 'lazy';
-      img.alt = '';
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      const t = document.createElement('div'); t.className = 't'; t.textContent = s.title;
-      const sub = document.createElement('div'); sub.className = 's'; sub.textContent = s.subtitle;
-      meta.append(t, sub);
-      const d = document.createElement('div'); d.className = 'd'; d.textContent = s.duration || '';
-      li.append(img, meta, d);
-      li.onclick = () => {
-        document.querySelectorAll('#results li.sel').forEach(x => x.classList.remove('sel'));
-        li.classList.add('sel');
-        play(s.id, s.title, (s.subtitle || '').split(' \u2022 ')[0]);
-      };
+      const li = el('li', 'row');
+      li.append(thumbEl(s.thumb), meta(s.title, [s.subtitle, s.duration].filter(Boolean).join(' • ')));
+      const a = el('div', 'acts');
+      if (isAdmin()) a.appendChild(iconBtn('play', 'sm', 'Lejátszás most', () => playNow(s)));
+      a.appendChild(iconBtn('plus', 'acc', 'Sorba', () => addToQueue(s)));
+      li.appendChild(a);
+      li.onclick = () => addToQueue(s);
       ul.appendChild(li);
     }
   }
 
-  async function play(id, title, artist) {
-    const qs = '?t=' + encodeURIComponent(title === 'Link' ? '' : title) + '&a=' + encodeURIComponent(artist);
-    const j = await send('play/' + id + qs);
-    if (j.ok) toast('▶ ' + title + (j.mode === 'background' ? '' : '  (megnyitva)'));
+  async function addToQueue(s) {
+    const qs = 'id=' + s.id
+      + '&t=' + encodeURIComponent(s.title === 'Link' ? '' : s.title)
+      + '&a=' + encodeURIComponent(artistOf(s))
+      + '&th=' + encodeURIComponent(s.thumb || '')
+      + '&d=' + encodeURIComponent(s.duration || '');
+    const j = await api('queue/add?' + qs);
+    if (!j.ok) { toast(j.error || 'Nem sikerült'); return; }
+    toast(j.started ? '▶ Indul: ' + s.title : '➕ Sorban (' + j.position + '.): ' + s.title);
+    refresh();
+  }
+
+  async function playNow(s) {
+    const qs = '?t=' + encodeURIComponent(s.title === 'Link' ? '' : s.title) + '&a=' + encodeURIComponent(artistOf(s));
+    const j = await send('play/' + s.id + qs);
+    if (j.ok) toast('▶ ' + s.title + (j.mode === 'background' ? '' : '  (megnyitva)'));
   }
 
   // gépelés közben is keres (kis késleltetéssel), Enterre azonnal
@@ -198,9 +539,11 @@
     $('q').blur();
   });
 
+  // ---------- indulás ----------
   document.addEventListener('visibilitychange', refresh);
-  setInterval(refresh, 3000);
-  refresh();
+  setInterval(refresh, 2500);
+  setInterval(tickProgress, 500);
+  if (!token) showJoin(); else refresh();
 </script>
 </body>
 </html>

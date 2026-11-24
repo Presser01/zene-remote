@@ -1,5 +1,6 @@
 package hu.peresztegi.zeneremote;
 
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -9,6 +10,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.media.AudioManager;
 import android.media.MediaMetadata;
@@ -23,6 +25,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.util.Log;
 
@@ -40,23 +43,34 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Előtérben futó szolgáltatás egy minimális HTTP szerverrel a PORT-on.
+ * Az app bezárása után is fut; telefon-újraindításkor magától elindul (BootReceiver).
  *
- * Végpontok:
- *   GET /            -> távirányító oldal (assets/index.html)
- *   GET /next        -> következő szám
- *   GET /prev        -> előző szám
- *   GET /toggle      -> lejátszás / szünet
- *   GET /volup       -> hangosabb
- *   GET /voldown     -> halkabb
- *   GET /play/{id}   -> adott YouTube (Music) videó ID indítása
- *   GET /status      -> mi szól most (JSON)
- *   GET /search?q=   -> YouTube Music keresés, dalok (JSON)
+ * Nyilvános végpontok:
+ *   GET /                 -> távirányító oldal (assets/index.html)
+ *   GET /join?name=       -> belépés névvel, visszaadja a tokent
+ *
+ * Belépés után (X-Token fejléc):
+ *   GET /state            -> most szól + várólista + résztvevők (JSON)
+ *   GET /status           -> csak a most szól (JSON)
+ *   GET /search?q=        -> YouTube Music keresés, dalok (JSON)
+ *   GET /queue/add?id=&t=&a=&th=&d=  -> dal a sor végére (bárki)
+ *   GET /toggle, /volup, /voldown    -> bárki
+ *   GET /admin/claim?pin= -> adminná válás a telefonon látható PIN-nel
+ *
+ * Csak adminnak:
+ *   GET /next, /prev, /play/{id}
+ *   GET /queue/remove?qid=, /queue/move?qid=&d=-1|1, /queue/playnow?qid=, /queue/clear
+ *   GET /users/admin?id=&on=1|0
  */
 public class RemoteService extends Service {
 
@@ -71,30 +85,114 @@ public class RemoteService extends Service {
     static final String PREFS = "settings";
     static final String PREF_BACK_TO_WAZE = "backToWaze";
     static final String PREF_HOSTNAME = "hostname";
+    static final String PREF_ENABLED = "enabled";
+    static final String PREF_PIN = "adminPin";
+    static final String PREF_PARTY = "party";
     static final String DEFAULT_HOSTNAME = "zene";
+    static final String ACTION_STOP = "hu.peresztegi.zeneremote.STOP";
     /** Az aktuális helyi név, pl. "zene.local" (a MainActivity mutatja). */
     public static volatile String hostName = null;
+
+    /** Ennyi ideig nem léptetünk újra egy dal indítása után (betöltés). */
+    private static final long SETTLE_MS = 8000;
+    /** Ha a dalból ennyi van hátra, indítjuk a sor következőjét. */
+    private static final long END_MS = 1500;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private volatile ServerSocket server;
     private ExecutorService pool;
+    private ScheduledExecutorService ticker;
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
     private WifiManager.MulticastLock multicastLock;
     private MdnsResponder mdns;
     private byte[] indexHtml;
+    private Party party;
+    private SharedPreferences prefs;
+    private SharedPreferences.OnSharedPreferenceChangeListener prefListener;
+
+    // PIN próbálkozások korlátozása
+    private int pinFails;
+    private long pinFailAt;
+
+    // automatikus léptetés állapota (csak a ticker szál használja, kivéve lastAdvanceAt)
+    private volatile long lastAdvanceAt;
+    private String lastKey;
+    private long lastPos, lastDur;
+    private boolean lastPlaying;
+    private volatile String currentKey;
+
+    // ---------------------------------------------------------------- indítás kívülről
+
+    static SharedPreferences prefs(Context c) {
+        return c.getSharedPreferences(PREFS, MODE_PRIVATE);
+    }
+
+    static boolean isEnabled(Context c) {
+        return prefs(c).getBoolean(PREF_ENABLED, false);
+    }
+
+    /** Bekapcsolja (és megjegyzi, hogy fusson). Hamis, ha a rendszer most nem engedte. */
+    static boolean start(Context c) {
+        prefs(c).edit().putBoolean(PREF_ENABLED, true).apply();
+        try {
+            c.startForegroundService(new Intent(c, RemoteService.class));
+            return true;
+        } catch (Exception e) { // Android 12+: háttérből indítás tiltva lehet
+            Log.w(TAG, "Szolgáltatás indítása nem sikerült", e);
+            return false;
+        }
+    }
+
+    /** Leállítja, és megjegyzi, hogy magától se induljon újra. */
+    static void stop(Context c) {
+        prefs(c).edit().putBoolean(PREF_ENABLED, false).apply();
+        c.stopService(new Intent(c, RemoteService.class));
+    }
+
+    /** 6 jegyű admin PIN; első használatkor generálja. */
+    static String pin(Context c) {
+        SharedPreferences p = prefs(c);
+        String pin = p.getString(PREF_PIN, null);
+        if (pin == null) pin = newPin(c);
+        return pin;
+    }
+
+    static String newPin(Context c) {
+        String pin = String.format(Locale.ROOT, "%06d", new SecureRandom().nextInt(1_000_000));
+        prefs(c).edit().putString(PREF_PIN, pin).apply();
+        return pin;
+    }
+
+    // ---------------------------------------------------------------- életciklus
 
     @Override
     public void onCreate() {
         super.onCreate();
+        prefs = prefs(this);
         startInForeground();
         acquireLocks();
         indexHtml = loadAsset("index.html");
+        party = new Party(prefs.getString(PREF_PARTY, null),
+                json -> prefs.edit().putString(PREF_PARTY, json).apply());
         startServer();
 
-        String name = getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getString(PREF_HOSTNAME, DEFAULT_HOSTNAME);
+        ticker = Executors.newSingleThreadScheduledExecutor();
+        ticker.scheduleAtFixedRate(() -> {
+            try {
+                tick();
+            } catch (Throwable t) { // különben a ticker csendben leállna
+                Log.w(TAG, "Léptetés hiba", t);
+            }
+        }, 2, 1, TimeUnit.SECONDS);
+
+        prefListener = (p, key) -> {
+            if (PREF_PIN.equals(key)) startInForeground(); // új PIN az értesítésben
+        };
+        prefs.registerOnSharedPreferenceChangeListener(prefListener);
+
+        String name = prefs.getString(PREF_HOSTNAME, DEFAULT_HOSTNAME);
         mdns = new MdnsResponder(name);
         mdns.start();
         hostName = mdns.hostName();
@@ -102,7 +200,25 @@ public class RemoteService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            prefs.edit().putBoolean(PREF_ENABLED, false).apply();
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        startInForeground(); // minden startForegroundService után kötelező
         return START_STICKY;
+    }
+
+    /** Ha az appot kisöprik a legutóbbiak közül, és a rendszer ezzel minket is leállítana. */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        if (isEnabled(this)) {
+            PendingIntent pi = PendingIntent.getForegroundService(this, 2,
+                    new Intent(this, RemoteService.class), PendingIntent.FLAG_IMMUTABLE);
+            getSystemService(AlarmManager.class)
+                    .set(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + 2000, pi);
+        }
+        super.onTaskRemoved(rootIntent);
     }
 
     @Override
@@ -113,6 +229,8 @@ public class RemoteService extends Service {
         } catch (IOException ignored) {
         }
         if (pool != null) pool.shutdownNow();
+        if (ticker != null) ticker.shutdownNow();
+        if (prefListener != null) prefs.unregisterOnSharedPreferenceChangeListener(prefListener);
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
         if (mdns != null) mdns.stop();
@@ -135,12 +253,16 @@ public class RemoteService extends Service {
 
         PendingIntent open = PendingIntent.getActivity(this, 0,
                 new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent stop = PendingIntent.getService(this, 1,
+                new Intent(this, RemoteService.class).setAction(ACTION_STOP),
+                PendingIntent.FLAG_IMMUTABLE);
 
         Notification n = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentTitle("Zene Remote fut")
-                .setContentText("Port: " + PORT)
+                .setContentText("Port: " + PORT + "  ·  Admin PIN: " + pin(this))
                 .setContentIntent(open)
+                .addAction(new Notification.Action.Builder(null, "Leállítás", stop).build())
                 .setOngoing(true)
                 .build();
 
@@ -183,7 +305,7 @@ public class RemoteService extends Service {
     }
 
     private void startServer() {
-        pool = Executors.newFixedThreadPool(4);
+        pool = Executors.newFixedThreadPool(6);
         Thread t = new Thread(() -> {
             try {
                 ServerSocket s = new ServerSocket();
@@ -227,6 +349,10 @@ public class RemoteService extends Service {
                     json.getBytes(StandardCharsets.UTF_8));
         }
 
+        static Resp json(JSONObject o) {
+            return json(200, o.toString());
+        }
+
         static Resp ok() {
             return json(200, "{\"ok\":true}");
         }
@@ -243,9 +369,10 @@ public class RemoteService extends Service {
                     new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
             String requestLine = in.readLine();
             if (requestLine == null) return;
+            String token = null;
             String h;
             while ((h = in.readLine()) != null && !h.isEmpty()) {
-                // fejlécek átugrása
+                if (h.regionMatches(true, 0, "X-Token:", 0, 8)) token = h.substring(8).trim();
             }
 
             String[] parts = requestLine.split(" ");
@@ -260,7 +387,12 @@ public class RemoteService extends Service {
                     query = path.substring(q + 1);
                     path = path.substring(0, q);
                 }
-                resp = route(path, query);
+                try {
+                    resp = route(path, query, token);
+                } catch (Exception e) {
+                    Log.w(TAG, "Feldolgozás hiba", e);
+                    resp = Resp.err(500, "Belső hiba: " + e.getMessage());
+                }
             }
             write(s.getOutputStream(), resp);
         } catch (Exception e) {
@@ -279,17 +411,32 @@ public class RemoteService extends Service {
         out.flush();
     }
 
-    private Resp route(String path, String query) {
+    private Resp route(String path, String query, String token) throws Exception {
+        // --- belépés nélkül ---
         switch (path) {
-            case "/search":
-                return search(param(query, "q"));
             case "/":
             case "/index.html":
                 return new Resp(200, "text/html; charset=utf-8", indexHtml);
-            case "/next":
-                return withController(c -> c.getTransportControls().skipToNext());
-            case "/prev":
-                return withController(c -> c.getTransportControls().skipToPrevious());
+            case "/join": {
+                Party.User u = party.join(token, param(query, "name"));
+                if (u == null) return Resp.err(400, "Adj meg egy nevet");
+                return Resp.json(new JSONObject().put("ok", true).put("token", u.token)
+                        .put("me", new JSONObject().put("id", u.id).put("name", u.name)
+                                .put("admin", u.admin)));
+            }
+        }
+
+        Party.User me = party.auth(token);
+        if (me == null) return Resp.json(401, "{\"ok\":false,\"auth\":true,\"error\":\"Előbb add meg a neved\"}");
+
+        // --- bárki ---
+        switch (path) {
+            case "/state":
+                return Resp.json(party.state(me).put("ok", true).put("now", nowJson()));
+            case "/status":
+                return Resp.json(nowJson().put("ok", true));
+            case "/search":
+                return search(param(query, "q"));
             case "/toggle":
                 return withController(c -> {
                     if (isPlaying(c)) c.getTransportControls().pause();
@@ -301,16 +448,49 @@ public class RemoteService extends Service {
             case "/voldown":
                 adjustVolume(AudioManager.ADJUST_LOWER);
                 return Resp.ok();
-            case "/status":
-                return status();
-            default:
-                if (path.startsWith("/play/")) {
-                    String id = path.substring("/play/".length());
-                    if (!id.matches("[A-Za-z0-9_-]{11}")) return Resp.err(400, "Hibás videó ID");
-                    return openSong(id, param(query, "t"), param(query, "a"));
-                }
-                return Resp.err(404, "Nincs ilyen");
+            case "/queue/add":
+                return queueAdd(me, query);
+            case "/admin/claim":
+                return claimAdmin(me, param(query, "pin"));
         }
+
+        boolean adminPath = path.equals("/next") || path.equals("/prev") || path.startsWith("/play/")
+                || path.startsWith("/queue/") || path.startsWith("/users/");
+        if (!adminPath) return Resp.err(404, "Nincs ilyen");
+        if (!me.admin) return Resp.err(403, "Ehhez admin kell");
+
+        // --- csak admin ---
+        switch (path) {
+            case "/next":
+                if (advance()) return Resp.ok(); // ha van a sorban, az jön
+                return withController(c -> c.getTransportControls().skipToNext());
+            case "/prev":
+                return withController(c -> c.getTransportControls().skipToPrevious());
+            case "/queue/remove":
+                return party.remove(lparam(query, "qid")) ? Resp.ok() : Resp.err(404, "Nincs a sorban");
+            case "/queue/move":
+                return party.move(lparam(query, "qid"), (int) Math.signum(lparam(query, "d")))
+                        ? Resp.ok() : Resp.err(400, "Nem mozgatható");
+            case "/queue/clear":
+                party.clear();
+                return Resp.ok();
+            case "/queue/playnow": {
+                Party.Item it = party.take(lparam(query, "qid"));
+                if (it == null) return Resp.err(404, "Nincs a sorban");
+                return startItem(it);
+            }
+            case "/users/admin":
+                return party.setAdmin(param(query, "id"), "1".equals(param(query, "on")))
+                        ? Resp.ok() : Resp.err(404, "Nincs ilyen résztvevő");
+        }
+        if (path.startsWith("/play/")) {
+            String id = path.substring("/play/".length());
+            if (!id.matches("[A-Za-z0-9_-]{11}")) return Resp.err(400, "Hibás videó ID");
+            party.clearCurrent();
+            markStarted();
+            return openSong(id, param(query, "t"), param(query, "a"));
+        }
+        return Resp.err(404, "Nincs ilyen");
     }
 
     private static String param(String query, String name) {
@@ -328,6 +508,14 @@ public class RemoteService extends Service {
         return "";
     }
 
+    private static long lparam(String query, String name) {
+        try {
+            return Long.parseLong(param(query, name).trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
     private Resp search(String q) {
         q = q.trim();
         if (q.isEmpty()) return Resp.err(400, "Üres keresés");
@@ -342,6 +530,154 @@ public class RemoteService extends Service {
             Log.w(TAG, "Keresés hiba", e);
             return Resp.err(502, "Keresés sikertelen: " + e.getMessage());
         }
+    }
+
+    private Resp claimAdmin(Party.User me, String pin) {
+        synchronized (this) {
+            long now = SystemClock.elapsedRealtime();
+            if (pinFails >= 5 && now - pinFailAt < 60_000) {
+                return Resp.err(429, "Túl sok próbálkozás, várj egy percet");
+            }
+            if (!pin.trim().equals(pin(this))) {
+                if (now - pinFailAt > 60_000) pinFails = 0;
+                pinFails++;
+                pinFailAt = now;
+                return Resp.err(403, "Rossz PIN");
+            }
+            pinFails = 0;
+        }
+        party.makeAdmin(me);
+        return Resp.ok();
+    }
+
+    // ---------------------------------------------------------------- várólista
+
+    private Resp queueAdd(Party.User me, String query) {
+        String id = param(query, "id");
+        if (!id.matches("[A-Za-z0-9_-]{11}")) return Resp.err(400, "Hibás videó ID");
+        Party.Item it = party.add(me, id, param(query, "t"), param(query, "a"),
+                param(query, "th"), param(query, "d"));
+        if (it == null) return Resp.err(400, "Tele a sor (max " + Party.MAX_QUEUE + ")");
+
+        // Ha épp semmi nem szól (nincs lejátszás, vagy le van állítva), egyből indítjuk.
+        boolean idle;
+        try {
+            MediaController c = findController();
+            int st = c != null && c.getPlaybackState() != null ? c.getPlaybackState().getState()
+                    : PlaybackState.STATE_NONE;
+            idle = c == null || st == PlaybackState.STATE_NONE || st == PlaybackState.STATE_STOPPED;
+        } catch (SecurityException e) {
+            idle = false;
+        }
+        boolean started = idle && party.current() == null && advance();
+        return Resp.json(new JSONObject().put("ok", true).put("started", started)
+                .put("position", started ? 0 : party.size()));
+    }
+
+    /** A sor következő elemének indítása. Hamis, ha üres a sor. */
+    private synchronized boolean advance() {
+        Party.Item it = party.pop();
+        if (it == null) return false;
+        startItem(it);
+        return true;
+    }
+
+    private Resp startItem(Party.Item it) {
+        markStarted();
+        return openSong(it.id, it.title, it.artist);
+    }
+
+    private void markStarted() {
+        lastAdvanceAt = SystemClock.elapsedRealtime();
+        currentKey = null;
+    }
+
+    /**
+     * Másodpercenként: ha a szóló dal a végéhez ér (vagy épp átváltott a YouTube Music
+     * saját következőjére), és van valami a sorban, indítjuk a sor következőjét.
+     */
+    private void tick() {
+        MediaController c;
+        try {
+            c = findController();
+        } catch (SecurityException e) {
+            return;
+        }
+        if (c == null) return;
+        PlaybackState st = c.getPlaybackState();
+        MediaMetadata md = c.getMetadata();
+        String key = trackKey(md);
+        long dur = md != null ? md.getLong(MediaMetadata.METADATA_KEY_DURATION) : 0;
+        long pos = position(st);
+        int state = st != null ? st.getState() : PlaybackState.STATE_NONE;
+        boolean playing = state == PlaybackState.STATE_PLAYING;
+
+        long sinceStart = SystemClock.elapsedRealtime() - lastAdvanceAt;
+        if (sinceStart <= SETTLE_MS) {
+            // épp indítottunk egy dalt: az előző dal adatai már nem számítanak
+            lastKey = null;
+            lastDur = 0;
+            lastPlaying = false;
+            return;
+        }
+
+        // "kérte: X" kijelzés: a sorból indított dal felismerése, majd törlése, ha továbbment
+        Party.Item cur = party.current();
+        if (cur != null) {
+            if (currentKey == null) {
+                if (looseMatch(cur.title, md)) currentKey = key;
+                else if (sinceStart > 20_000) party.clearCurrent();
+            } else if (!currentKey.equals(key)) {
+                party.clearCurrent();
+                currentKey = null;
+            }
+        }
+
+        if (!party.isEmpty()) {
+            boolean nearEnd = playing && dur > 0 && dur - pos < END_MS;
+            boolean switchedAtEnd = lastKey != null && key != null && !key.equals(lastKey)
+                    && lastDur > 0 && lastDur - lastPos < 6000;
+            boolean stoppedAtEnd = lastPlaying && !playing
+                    && (state == PlaybackState.STATE_STOPPED || state == PlaybackState.STATE_NONE)
+                    && lastDur > 0 && lastDur - lastPos < 6000;
+            if (nearEnd || switchedAtEnd || stoppedAtEnd) {
+                advance();
+                lastKey = null;
+                return;
+            }
+        }
+
+        lastKey = key;
+        lastPos = pos;
+        lastDur = dur;
+        lastPlaying = playing;
+    }
+
+    private static String trackKey(MediaMetadata md) {
+        if (md == null) return null;
+        CharSequence t = md.getText(MediaMetadata.METADATA_KEY_TITLE);
+        CharSequence a = md.getText(MediaMetadata.METADATA_KEY_ARTIST);
+        if (t == null) return null;
+        return t + "|" + (a != null ? a : "");
+    }
+
+    private static boolean looseMatch(String title, MediaMetadata md) {
+        if (md == null || title == null || title.isEmpty()) return false;
+        CharSequence t = md.getText(MediaMetadata.METADATA_KEY_TITLE);
+        if (t == null) return false;
+        String a = title.toLowerCase(Locale.ROOT).trim();
+        String b = t.toString().toLowerCase(Locale.ROOT).trim();
+        return !b.isEmpty() && (a.contains(b) || b.contains(a));
+    }
+
+    private static long position(PlaybackState st) {
+        if (st == null) return 0;
+        long pos = st.getPosition();
+        if (st.getState() == PlaybackState.STATE_PLAYING && st.getLastPositionUpdateTime() > 0) {
+            pos += (long) ((SystemClock.elapsedRealtime() - st.getLastPositionUpdateTime())
+                    * st.getPlaybackSpeed());
+        }
+        return Math.max(0, pos);
     }
 
     // ---------------------------------------------------------------- média
@@ -427,7 +763,7 @@ public class RemoteService extends Service {
                 return Resp.err(500, "Nincs app, ami megnyitná a linket");
             }
         }
-        if (getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_BACK_TO_WAZE, false)) {
+        if (prefs.getBoolean(PREF_BACK_TO_WAZE, false)) {
             mainHandler.postDelayed(this::bringWazeBack, 2500);
         }
         return Resp.json(200, "{\"ok\":true,\"mode\":\"foreground\"}");
@@ -444,36 +780,51 @@ public class RemoteService extends Service {
         }
     }
 
-    private Resp status() {
+    /** Mi szól most: cím, előadó, pozíció, hangerő. */
+    private JSONObject nowJson() throws Exception {
         MediaController c;
         try {
             c = findController();
         } catch (SecurityException e) {
-            return Resp.err(500, "Nincs értesítés-hozzáférés megadva");
+            return new JSONObject().put("active", false).put("error", "Nincs értesítés-hozzáférés megadva");
         }
-        if (c == null) return Resp.json(200, "{\"ok\":true,\"active\":false}");
+        if (c == null) return new JSONObject().put("active", false);
 
         String title = "";
         String artist = "";
+        String art = "";
+        long dur = 0;
         MediaMetadata md = c.getMetadata();
         if (md != null) {
             CharSequence t = md.getText(MediaMetadata.METADATA_KEY_TITLE);
             CharSequence a = md.getText(MediaMetadata.METADATA_KEY_ARTIST);
             if (t != null) title = t.toString();
             if (a != null) artist = a.toString();
+            dur = md.getLong(MediaMetadata.METADATA_KEY_DURATION);
+            for (String k : new String[]{MediaMetadata.METADATA_KEY_ART_URI,
+                    MediaMetadata.METADATA_KEY_ALBUM_ART_URI, MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI}) {
+                String u = md.getString(k);
+                if (u != null && u.startsWith("http")) {
+                    art = u;
+                    break;
+                }
+            }
         }
         AudioManager am = getSystemService(AudioManager.class);
-        int vol = am.getStreamVolume(AudioManager.STREAM_MUSIC);
-        int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+        PlaybackState st = c.getPlaybackState();
 
-        return Resp.json(200, "{\"ok\":true,\"active\":true"
-                + ",\"playing\":" + isPlaying(c)
-                + ",\"title\":\"" + esc(title) + "\""
-                + ",\"artist\":\"" + esc(artist) + "\""
-                + ",\"volume\":" + vol + ",\"maxVolume\":" + max
-                + ",\"app\":\"" + esc(c.getPackageName()) + "\""
-                + ",\"actions\":" + (c.getPlaybackState() != null ? c.getPlaybackState().getActions() : 0)
-                + "}");
+        return new JSONObject()
+                .put("active", true)
+                .put("playing", isPlaying(c))
+                .put("title", title)
+                .put("artist", artist)
+                .put("art", art)
+                .put("position", position(st))
+                .put("duration", dur)
+                .put("volume", am.getStreamVolume(AudioManager.STREAM_MUSIC))
+                .put("maxVolume", am.getStreamMaxVolume(AudioManager.STREAM_MUSIC))
+                .put("app", c.getPackageName())
+                .put("actions", st != null ? st.getActions() : 0);
     }
 
     private static String esc(String s) {
