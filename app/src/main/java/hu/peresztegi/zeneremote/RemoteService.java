@@ -28,6 +28,7 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.util.Log;
+import android.view.KeyEvent;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -462,10 +463,7 @@ public class RemoteService extends Service {
             case "/search":
                 return search(param(query, "q"));
             case "/toggle":
-                return withController(c -> {
-                    if (isPlaying(c)) c.getTransportControls().pause();
-                    else c.getTransportControls().play();
-                });
+                return toggle();
             case "/volup":
                 adjustVolume(AudioManager.ADJUST_RAISE);
                 return Resp.ok();
@@ -596,13 +594,14 @@ public class RemoteService extends Service {
                 param(query, "th"), param(query, "d"));
         if (it == null) return Resp.err(400, "Tele a sor (max " + Party.MAX_QUEUE + ")");
 
-        // Ha épp semmi nem szól (nincs lejátszás, vagy le van állítva), egyből indítjuk.
+        // Ha épp semmi nem szól (nincs lejátszás, szünetel vagy le van állítva), egyből indítjuk.
         boolean idle;
         try {
             MediaController c = findController();
             int st = c != null && c.getPlaybackState() != null ? c.getPlaybackState().getState()
                     : PlaybackState.STATE_NONE;
-            idle = c == null || st == PlaybackState.STATE_NONE || st == PlaybackState.STATE_STOPPED;
+            idle = c == null || st == PlaybackState.STATE_NONE || st == PlaybackState.STATE_STOPPED
+                    || st == PlaybackState.STATE_PAUSED;
         } catch (SecurityException e) {
             idle = false;
         }
@@ -747,6 +746,53 @@ public class RemoteService extends Service {
         return list.get(0);
     }
 
+    /**
+     * Lejátszás / szünet. Ha semmi nem szól: előbb a sor jön (ha van benne valami),
+     * különben folytatja, ami volt; ha a YouTube Music nem is fut, felébreszti.
+     */
+    private Resp toggle() {
+        MediaController c;
+        try {
+            c = findController();
+        } catch (SecurityException e) {
+            return Resp.err(500, "Nincs értesítés-hozzáférés megadva");
+        }
+        if (c != null && isPlaying(c)) {
+            c.getTransportControls().pause();
+            return Resp.ok();
+        }
+        if (party.current() == null && !party.isEmpty() && advance()) return Resp.ok();
+        if (c != null) {
+            c.getTransportControls().play();
+            return Resp.ok();
+        }
+        if (wakeYtm() != null) return Resp.ok();
+        return Resp.err(500, "Nem indult el. Nyisd meg egyszer a YouTube Musicot a telefonon.");
+    }
+
+    /**
+     * Ha nincs aktív lejátszó, "megnyomja" a telefon play gombját (mint egy Bluetooth
+     * fülhallgató). Ezt a rendszer az utoljára használt zenelejátszónak küldi, ami így
+     * a háttérben elindul. Visszaadja a YouTube Music munkamenetét, ha előjött.
+     */
+    private MediaController wakeYtm() {
+        AudioManager am = getSystemService(AudioManager.class);
+        long t = SystemClock.uptimeMillis();
+        am.dispatchMediaKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY, 0));
+        am.dispatchMediaKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY, 0));
+        for (int i = 0; i < 16; i++) {
+            SystemClock.sleep(250);
+            try {
+                MediaController c = findController();
+                if (c != null && YTM.equals(c.getPackageName())) return c;
+            } catch (SecurityException e) {
+                return null;
+            }
+        }
+        ServiceLog.add(this, "A YouTube Music nem indult el a play gombra");
+        return null;
+    }
+
     private static boolean isPlaying(MediaController c) {
         PlaybackState st = c.getPlaybackState();
         return st != null && st.getState() == PlaybackState.STATE_PLAYING;
@@ -770,6 +816,9 @@ public class RemoteService extends Service {
             c = findController();
         } catch (SecurityException ignored) {
         }
+        // Nincs aktív lejátszó: felébresztjük a YouTube Musicot, hogy a háttérben
+        // tudjuk indítani a dalt (és ne kelljen előhozni az appot).
+        if (c == null) c = wakeYtm();
         if (c != null && YTM.equals(c.getPackageName())) {
             PlaybackState st = c.getPlaybackState();
             long actions = st != null ? st.getActions() : 0;
