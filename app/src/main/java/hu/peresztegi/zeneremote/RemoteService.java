@@ -114,6 +114,7 @@ public class RemoteService extends Service {
     private SharedPreferences.OnSharedPreferenceChangeListener prefListener;
 
     private int ticks;
+    private long lastTickAt;
 
     // PIN próbálkozások korlátozása
     private int pinFails;
@@ -186,6 +187,14 @@ public class RemoteService extends Service {
         ticker.scheduleAtFixedRate(() -> {
             try {
                 if (++ticks % 60 == 0) ServiceLog.alive(this); // percenként életjel a naplóhoz
+                // Ha a rendszer befagyasztja / elaltatja a folyamatot, a ticker sem fut:
+                // feléledéskor látszik a kiesés, ezt naplózzuk.
+                long now = SystemClock.elapsedRealtime();
+                if (lastTickAt > 0 && now - lastTickAt > 15_000) {
+                    ServiceLog.add(this, "⏸ " + (now - lastTickAt) / 1000
+                            + " mp-ig nem futott (a rendszer befagyasztotta vagy elaltatta)");
+                }
+                lastTickAt = now;
                 tick();
             } catch (Throwable t) { // különben a ticker csendben leállna
                 Log.w(TAG, "Léptetés hiba", t);
