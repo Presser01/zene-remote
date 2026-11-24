@@ -552,7 +552,7 @@ public class RemoteService extends Service {
 
     // ---------------------------------------------------------------- várólista
 
-    private Resp queueAdd(Party.User me, String query) {
+    private Resp queueAdd(Party.User me, String query) throws Exception {
         String id = param(query, "id");
         if (!id.matches("[A-Za-z0-9_-]{11}")) return Resp.err(400, "Hibás videó ID");
         Party.Item it = party.add(me, id, param(query, "t"), param(query, "a"),
