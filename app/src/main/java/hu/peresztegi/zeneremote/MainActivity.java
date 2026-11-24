@@ -50,6 +50,7 @@ public class MainActivity extends Activity {
     private static final int ACC = 0xFFFF2D55;
     private static final int OK = 0xFF34C759;
     private static final int WARN = 0xFFFF9F0A;
+    private static final String LOCAL_LABEL = "Ezen a telefonon";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable ticker = new Runnable() {
@@ -116,7 +117,7 @@ public class MainActivity extends Activity {
 
         // ---- elérés
         LinearLayout links = card(root);
-        links.addView(header("Linda ezt nyissa meg"));
+        links.addView(header("Elérés"));
         linksBox = new LinearLayout(this);
         linksBox.setOrientation(LinearLayout.VERTICAL);
         links.addView(linksBox);
@@ -263,8 +264,11 @@ public class MainActivity extends Activity {
     private void refreshLinks(boolean running) {
         List<String[]> items = new ArrayList<>();
         if (running) {
+            // A saját telefonon a .local név nem mindig működik (pl. ha fut a Tailscale/VPN),
+            // a localhost viszont mindig.
+            items.add(new String[]{LOCAL_LABEL, "http://localhost:" + RemoteService.PORT});
             if (RemoteService.hostName != null) {
-                items.add(new String[]{"Helyi név · Wi-Fi és hotspot",
+                items.add(new String[]{"Helyi név · más eszközről, Wi-Fi és hotspot",
                         "http://" + RemoteService.hostName + ":" + RemoteService.PORT});
             }
             try {
@@ -305,6 +309,10 @@ public class MainActivity extends Activity {
             url.setEllipsize(TextUtils.TruncateAt.END);
             col.addView(url);
             r.addView(col, new LinearLayout.LayoutParams(0, -2, 1f));
+            if (it[0].equals(LOCAL_LABEL)) {
+                r.addView(button("Megnyitás", false, v -> openUrl(it[1])));
+                r.addView(gap());
+            }
             r.addView(button("Másolás", false, v -> copy(it[0], it[1])));
             linksBox.addView(r);
         }
@@ -406,6 +414,14 @@ public class MainActivity extends Activity {
             handler.postDelayed(() -> RemoteService.start(this), 800);
         }
         toast("Mentve: " + n + ".local");
+    }
+
+    private void openUrl(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Exception e) {
+            toast("Nincs böngésző, ami megnyitná");
+        }
     }
 
     private void copy(String label, String value) {
