@@ -11,7 +11,11 @@ public class BootReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         String a = intent.getAction();
         if (Intent.ACTION_BOOT_COMPLETED.equals(a) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(a)) {
-            if (RemoteService.isEnabled(context)) RemoteService.start(context);
+            if (RemoteService.isEnabled(context)) {
+                ServiceLog.add(context, Intent.ACTION_BOOT_COMPLETED.equals(a)
+                        ? "Indítás a telefon bekapcsolása után" : "Indítás app-frissítés után");
+                RemoteService.start(context);
+            }
         }
     }
 }

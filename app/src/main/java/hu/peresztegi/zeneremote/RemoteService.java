@@ -67,10 +67,11 @@ import java.util.concurrent.TimeUnit;
  *   GET /toggle, /volup, /voldown    -> bárki
  *   GET /admin/claim?pin= -> adminná válás a telefonon látható PIN-nel
  *
- * Csak adminnak:
+ * Csak adminnak (ha nincs egy admin se, akkor bárkinek):
  *   GET /next, /prev, /play/{id}
  *   GET /queue/remove?qid=, /queue/move?qid=&d=-1|1, /queue/playnow?qid=, /queue/clear
- *   GET /users/admin?id=&on=1|0
+ *
+ * Csak adminnak: GET /users/admin?id=&on=1|0 (saját magáról bárki lemondhat)
  */
 public class RemoteService extends Service {
 
@@ -111,6 +112,8 @@ public class RemoteService extends Service {
     private Party party;
     private SharedPreferences prefs;
     private SharedPreferences.OnSharedPreferenceChangeListener prefListener;
+
+    private int ticks;
 
     // PIN próbálkozások korlátozása
     private int pinFails;
@@ -172,6 +175,7 @@ public class RemoteService extends Service {
         super.onCreate();
         prefs = prefs(this);
         startInForeground();
+        ServiceLog.started(this);
         acquireLocks();
         indexHtml = loadAsset("index.html");
         party = new Party(prefs.getString(PREF_PARTY, null),
@@ -181,6 +185,7 @@ public class RemoteService extends Service {
         ticker = Executors.newSingleThreadScheduledExecutor();
         ticker.scheduleAtFixedRate(() -> {
             try {
+                if (++ticks % 60 == 0) ServiceLog.alive(this); // percenként életjel a naplóhoz
                 tick();
             } catch (Throwable t) { // különben a ticker csendben leállna
                 Log.w(TAG, "Léptetés hiba", t);
@@ -202,6 +207,7 @@ public class RemoteService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             prefs.edit().putBoolean(PREF_ENABLED, false).apply();
+            ServiceLog.add(this, "Leállítás az értesítésből");
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -212,6 +218,7 @@ public class RemoteService extends Service {
     /** Ha az appot kisöprik a legutóbbiak közül, és a rendszer ezzel minket is leállítana. */
     @Override
     public void onTaskRemoved(Intent rootIntent) {
+        ServiceLog.add(this, "Az appot kisöpörték a legutóbbiak közül");
         if (isEnabled(this)) {
             PendingIntent pi = PendingIntent.getForegroundService(this, 2,
                     new Intent(this, RemoteService.class), PendingIntent.FLAG_IMMUTABLE);
@@ -224,6 +231,7 @@ public class RemoteService extends Service {
     @Override
     public void onDestroy() {
         running = false;
+        ServiceLog.stopped(this);
         try {
             if (server != null) server.close();
         } catch (IOException ignored) {
@@ -259,7 +267,7 @@ public class RemoteService extends Service {
 
         Notification n = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_media_play)
-                .setContentTitle("Zene Remote fut")
+                .setContentTitle("Passenger DJ fut")
                 .setContentText("Port: " + PORT + "  ·  Admin PIN: " + pin(this))
                 .setContentIntent(open)
                 .addAction(new Notification.Action.Builder(null, "Leállítás", stop).build())
@@ -276,7 +284,11 @@ public class RemoteService extends Service {
     @SuppressWarnings("deprecation")
     private void acquireLocks() {
         PowerManager pm = getSystemService(PowerManager.class);
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ZeneRemote:cpu");
+        // Honor/Huawei energiakezelője (PowerGenie) lelövi a sokáig wakelockot tartó appokat,
+        // kivéve, ha a wakelock neve a beépített fehérlistáján van. Ez a név rajta van.
+        String m = Build.MANUFACTURER.toLowerCase(Locale.ROOT);
+        String tag = m.contains("honor") || m.contains("huawei") ? "LocationManagerService" : "ZeneRemote:cpu";
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, tag);
         wakeLock.setReferenceCounted(false);
         wakeLock.acquire();
 
@@ -431,8 +443,11 @@ public class RemoteService extends Service {
 
         // --- bárki ---
         switch (path) {
-            case "/state":
-                return Resp.json(party.state(me).put("ok", true).put("now", nowJson()));
+            case "/state": {
+                JSONObject st = party.state(me).put("ok", true).put("now", nowJson());
+                st.getJSONObject("me").put("canControl", canControl(me));
+                return Resp.json(st);
+            }
             case "/status":
                 return Resp.json(nowJson().put("ok", true));
             case "/search":
@@ -454,12 +469,23 @@ public class RemoteService extends Service {
                 return claimAdmin(me, param(query, "pin"));
         }
 
-        boolean adminPath = path.equals("/next") || path.equals("/prev") || path.startsWith("/play/")
-                || path.startsWith("/queue/") || path.startsWith("/users/");
-        if (!adminPath) return Resp.err(404, "Nincs ilyen");
-        if (!me.admin) return Resp.err(403, "Ehhez admin kell");
+        // Admin-jog kezelése: csak tényleges admin nevezhet ki / fokozhat le másokat.
+        // Saját magáról bárki lemondhat (ha az utolsó admin lemond, mindenki egyenrangú lesz).
+        if (path.equals("/users/admin")) {
+            String id = param(query, "id");
+            boolean on = "1".equals(param(query, "on"));
+            boolean self = id.equals(me.id);
+            if (!me.admin || (self && on)) return Resp.err(403, "Ehhez admin kell");
+            return party.setAdmin(id, on) ? Resp.ok() : Resp.err(404, "Nincs ilyen résztvevő");
+        }
 
-        // --- csak admin ---
+        boolean adminPath = path.equals("/next") || path.equals("/prev") || path.startsWith("/play/")
+                || path.startsWith("/queue/");
+        if (!adminPath) return Resp.err(404, "Nincs ilyen");
+        // Ha nincs egy admin se, mindenki egyenrangú: bárki léptethet, törölhet.
+        if (!canControl(me)) return Resp.err(403, "Ehhez admin kell");
+
+        // --- admin, vagy bárki, ha nincs admin ---
         switch (path) {
             case "/next":
                 if (advance()) return Resp.ok(); // ha van a sorban, az jön
@@ -479,9 +505,6 @@ public class RemoteService extends Service {
                 if (it == null) return Resp.err(404, "Nincs a sorban");
                 return startItem(it);
             }
-            case "/users/admin":
-                return party.setAdmin(param(query, "id"), "1".equals(param(query, "on")))
-                        ? Resp.ok() : Resp.err(404, "Nincs ilyen résztvevő");
         }
         if (path.startsWith("/play/")) {
             String id = path.substring("/play/".length());
@@ -491,6 +514,11 @@ public class RemoteService extends Service {
             return openSong(id, param(query, "t"), param(query, "a"));
         }
         return Resp.err(404, "Nincs ilyen");
+    }
+
+    /** Admin vagy, vagy senki sem admin (egyenrangú mód). */
+    private boolean canControl(Party.User me) {
+        return me.admin || !party.hasAdmin();
     }
 
     private static String param(String query, String name) {

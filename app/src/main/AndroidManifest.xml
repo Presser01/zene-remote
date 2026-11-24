@@ -19,9 +19,10 @@
     </queries>
 
     <application
-        android:label="Zene Remote"
+        android:name=".App"
+        android:label="Passenger DJ"
         android:icon="@android:drawable/ic_media_play"
-        android:theme="@android:style/Theme.DeviceDefault">
+        android:theme="@android:style/Theme.Material.NoActionBar">
 
         <activity
             android:name=".MainActivity"
@@ -45,7 +46,7 @@
         <!-- Csak azért kell, hogy a rendszer engedje vezérelni más appok lejátszását -->
         <service
             android:name=".MediaListener"
-            android:label="Zene Remote"
+            android:label="Passenger DJ"
             android:exported="true"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
@@ -65,7 +66,7 @@
         <!-- Gyorsbeállítás-csempe: ki/be kapcsolás az app megnyitása nélkül -->
         <service
             android:name=".ServerTile"
-            android:label="Zene Remote"
+            android:label="Passenger DJ"
             android:icon="@android:drawable/ic_media_play"
             android:exported="true"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">

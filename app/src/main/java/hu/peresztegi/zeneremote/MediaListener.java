@@ -16,6 +16,7 @@ public class MediaListener extends NotificationListenerService {
     public void onListenerConnected() {
         super.onListenerConnected();
         if (RemoteService.isEnabled(this) && !RemoteService.running) {
+            ServiceLog.add(this, "Újraindítás (értesítés-figyelő)");
             RemoteService.start(this);
         }
     }

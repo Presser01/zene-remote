@@ -6,9 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Zene">
+<meta name="apple-mobile-web-app-title" content="Passenger DJ">
 <meta name="theme-color" content="#0f0f0f">
-<title>Zene távirányító</title>
+<title>Passenger DJ</title>
 <style>
   :root { --bg:#0f0f0f; --card:#1c1c1c; --card2:#262626; --line:#2c2c2c; --txt:#f3f3f3; --dim:#9a9a9a;
     --acc:#ff2d55; --ok:#34c759; --gold:#ffcc00; --barH:178px; }
@@ -72,6 +72,8 @@
   .pill.gold { background:rgba(255,204,0,.15); color:var(--gold); }
   .dot { width:8px; height:8px; border-radius:50%; background:#555; flex:none; }
   .dot.on { background:var(--ok); }
+  .note { margin:4px 8px 8px; padding:10px 12px; border-radius:12px; background:rgba(52,199,89,.12);
+    color:#9fe3b1; font-size:13px; line-height:1.45; }
   .wide { display:block; width:calc(100% - 8px); margin:14px 4px 0; padding:13px; border-radius:12px; border:0;
     background:var(--card); font-size:15px; font-weight:600; }
   .wide.danger { color:var(--acc); }
@@ -130,7 +132,7 @@
 </svg>
 
 <div id="join">
-  <h1>🎵 Zene</h1>
+  <h1>🎧 Passenger DJ</h1>
   <p>Add meg a neved, hogy a többiek lássák, ki kérte a számot.</p>
   <form id="joinf" action="javascript:void(0)">
     <input id="jname" maxlength="24" autocomplete="nickname" placeholder="Neved" enterkeyhint="go">
@@ -140,7 +142,7 @@
 
 <header>
   <div class="top">
-    <div class="logo">Zene<span>.</span></div>
+    <div class="logo">Passenger<span> DJ</span></div>
     <button class="chip" id="mechip" onclick="tab('people')"><span id="mecrown"></span><b id="mename">–</b></button>
   </div>
   <div class="tabs">
@@ -168,6 +170,8 @@
 
 <section id="people">
   <div class="h">Résztvevők</div>
+  <div class="note" id="eqnote">Nincs admin, így mindenki egyformán irányíthat: léptethet és törölhet is.
+    Ha valaki beírja a PIN-t, onnantól csak az adminok.</div>
   <ul class="list" id="ulist"></ul>
   <div id="claim">
     <div class="h">Admin vagy?</div>
@@ -276,6 +280,7 @@
   }
 
   const isAdmin = () => !!(S && S.me && S.me.admin);
+  const canCtl = () => !!(S && S.me && S.me.canControl);
 
   // ---------- belépés ----------
   function showJoin(prefill) {
@@ -326,8 +331,9 @@
   function renderMe() {
     $('mename').textContent = S.me.name;
     $('mecrown').textContent = S.me.admin ? '👑' : '🙂';
-    $('bprev').classList.toggle('hide', !S.me.admin);
-    $('bnext').classList.toggle('hide', !S.me.admin);
+    $('bprev').classList.toggle('hide', !S.me.canControl);
+    $('bnext').classList.toggle('hide', !S.me.canControl);
+    $('eqnote').style.display = S.hasAdmin ? 'none' : '';
     $('claim').style.display = S.me.admin ? 'none' : '';
   }
 
@@ -371,7 +377,7 @@
   }
 
   function renderQueue() {
-    const admin = isAdmin();
+    const admin = canCtl();
     const box = $('qnow');
     box.innerHTML = '';
     if (S.current) {
@@ -441,6 +447,15 @@
           send('users/admin?id=' + u.id + '&on=' + (u.admin ? 0 : 1));
         };
         li.appendChild(b);
+      } else if (admin && u.me) {
+        const b = el('button', 'pill gold', '👑 Lemondok');
+        b.onclick = () => {
+          const last = S.users.filter(x => x.admin).length === 1;
+          if (!confirm(last ? 'Te vagy az utolsó admin. Ha lemondasz, mindenki egyformán irányíthat. Mehet?'
+                            : 'Lemondasz az admin jogról?')) return;
+          send('users/admin?id=' + u.id + '&on=0');
+        };
+        li.appendChild(b);
       } else if (u.admin) {
         li.appendChild(el('span', 'pill gold', '👑 Admin'));
       }
@@ -499,7 +514,7 @@
       const li = el('li', 'row');
       li.append(thumbEl(s.thumb), meta(s.title, [s.subtitle, s.duration].filter(Boolean).join(' • ')));
       const a = el('div', 'acts');
-      if (isAdmin()) a.appendChild(iconBtn('play', 'sm', 'Lejátszás most', () => playNow(s)));
+      if (canCtl()) a.appendChild(iconBtn('play', 'sm', 'Lejátszás most', () => playNow(s)));
       a.appendChild(iconBtn('plus', 'acc', 'Sorba', () => addToQueue(s)));
       li.appendChild(a);
       li.onclick = () => addToQueue(s);

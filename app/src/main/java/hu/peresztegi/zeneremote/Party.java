@@ -197,7 +197,8 @@ final class Party {
                 .put("me", new JSONObject().put("id", me.id).put("name", me.name).put("admin", me.admin))
                 .put("queue", q)
                 .put("current", current != null ? itemJson(current, me) : JSONObject.NULL)
-                .put("users", users);
+                .put("users", users)
+                .put("hasAdmin", hasAdmin());
     }
 
     private static JSONObject itemJson(Item it, User me) throws JSONException {

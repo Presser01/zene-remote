@@ -44,7 +44,7 @@ public class ServerTile extends TileService {
         if (t == null) return;
         boolean on = RemoteService.running;
         t.setState(on ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
-        t.setLabel("Zene Remote");
+        t.setLabel("Passenger DJ");
         if (Build.VERSION.SDK_INT >= 29) t.setSubtitle(on ? "Fut" : "Áll");
         t.updateTile();
     }

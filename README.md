@@ -1,4 +1,6 @@
-# Zene Remote
+# Passenger DJ
+
+(repó: zene-remote)
 
 Kis Android app: a telefonon egy webszervert futtat (port **1821**), amin keresztül
 más eszközről (pl. iPhone Safari) vezérelhető a YouTube Music.
@@ -12,17 +14,21 @@ A keresőbe YouTube Music linket is be lehet illeszteni.
 - Első megnyitáskor mindenki megadja a nevét (a böngésző megjegyzi).
 - **Bárki** tehet dalt a sorba: koppints a találatra. A dalok sorban jönnek egymás után;
   ha épp semmi nem szól, az első azonnal indul.
-- **Csak admin** törölhet a sorból, rendezheti, ürítheti, indíthat dalt azonnal,
-  és léptethet (előző / következő). Szünet és hangerő mindenkinek megy.
+- **Amíg nincs admin, mindenki egyenrangú**: bárki léptethet, törölhet, rendezhet.
+- **Ha van admin**, onnantól csak ő (ők) törölhet a sorból, rendezheti, ürítheti, indíthat
+  dalt azonnal, és léptethet (előző / következő). Szünet és hangerő mindenkinek megy.
 - Adminná válás: a **Résztvevők** fülön a PIN beírásával. A PIN a telefon értesítésében
-  és a Zene Remote appban látszik (ott újat is lehet generálni). Egy admin a Résztvevők
-  fülön másokat is adminná tehet, vagy elveheti a jogot.
+  és a Passenger DJ appban látszik (ott újat is lehet generálni). Egy admin másokat is
+  adminná tehet, elveheti a jogot, vagy lemondhat róla. Ha az utolsó admin is lemond,
+  újra mindenki egyenrangú.
 
 ### Háttérben fut
 
-Elindítás után az appot be lehet zárni, a szerver tovább fut. Telefon-újraindítás után
+Elindítás után az appot be lehet zárni, a szerver tovább fut. Honor/Huawei telefonon a
+wakelock a rendszer fehérlistás nevét kapja, hogy az energiakezelő ne lője le, és az
+appban a **Napló** kártyán látszik, ha a rendszer mégis leállította. Telefon-újraindítás után
 magától elindul, ha be volt kapcsolva. Ki/bekapcsolni lehet az értesítés
-**Leállítás** gombjával vagy a gyorsbeállításokba felvehető **Zene Remote** csempével is.
+**Leállítás** gombjával vagy a gyorsbeállításokba felvehető **Passenger DJ** csempével is.
 
 Nincs külső függősége, csak az Android SDK. Android 8.0+ (minSdk 26).
 
@@ -46,11 +52,11 @@ Nincs külső függősége, csak az Android SDK. Android 8.0+ (minSdk 26).
 
 1. Másold át az `app-debug.apk`-t a telefonra, nyisd meg, és engedélyezd az
    "ismeretlen forrásból" való telepítést a fájlkezelőnek.
-2. Nyisd meg a **Zene Remote** appot, és nyomd meg a gombokat, amíg mindegyik ✅ nem lesz:
+2. Nyisd meg a **Passenger DJ** appot, és nyomd meg a gombokat, amíg mindegyik ✅ nem lesz:
    - **Értesítés-hozzáférés**: enélkül nem tudja vezérelni a YouTube Musicot
    - **Más appok feletti megjelenítés**: enélkül a "link indítás" a háttérből nem megy
    - **Akkumulátor-optimalizálás kikapcsolása**
-3. MagicOS: Beállítások → Akkumulátor → Alkalmazásindítás → Zene Remote →
+3. MagicOS: Beállítások → Akkumulátor → Alkalmazásindítás → Passenger DJ →
    **Kézi kezelés**, és mindhárom kapcsoló legyen bekapcsolva.
 4. **Szerver indítása**. Az app kiírja a címeket:
    - `wlan0` → otthoni Wi-Fi cím (pl. `http://192.168.1.23:1821`)
